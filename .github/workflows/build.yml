@@ -83,6 +83,20 @@ jobs:
         with:
           name: szimulator-app
           path: SubaruCompanion-simulator.zip
+      # Telefonra telepíthető, aláíratlan csomag. Windowsról a Sideloadly írja alá a saját Apple ID-ddal.
+      - name: Telefonos csomag (IPA) készítése
+        run: |
+          cd ios-app
+          set -o pipefail
+          xcodebuild build             -project SubaruCompanion.xcodeproj             -scheme SubaruCompanion             -configuration Release             -destination 'generic/platform=iOS'             -derivedDataPath build-device             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""             | tee device-build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" device-build.log
+          mkdir Payload
+          cp -R build-device/Build/Products/Release-iphoneos/SubaruCompanion.app Payload/
+          zip -qry "$GITHUB_WORKSPACE/SubaruCompanion.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telefonra-ipa
+          path: SubaruCompanion.ipa
       - name: Build napló feltöltése
         if: always()
         uses: actions/upload-artifact@v4
