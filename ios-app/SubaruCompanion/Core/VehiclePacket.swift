@@ -24,6 +24,10 @@ struct VehiclePacket: Equatable {
     var odometerKm: Double?
     var distSinceClearKm: Double?
     var tripKm: Double?
+    /// Nyugalmi feszültség az indítás előtt
+    var restV: Double?
+    /// Legalacsonyabb feszültség önindítózás közben (csak ha a modul ébren volt)
+    var crankMinV: Double?
 
     enum CodingKeys: String, CodingKey {
         case seq, ecu, elm, rpm, vin, maf
@@ -42,6 +46,8 @@ struct VehiclePacket: Equatable {
         case odometerKm = "odometer_km"
         case distSinceClearKm = "dist_since_clear_km"
         case tripKm = "trip_km"
+        case restV = "rest_v"
+        case crankMinV = "crank_min_v"
     }
 
     /// Pillanatnyi fogyasztás l/óra a MAF-ból (benzin: AFR 14.7, sűrűség 745 g/l).
@@ -84,6 +90,8 @@ extension VehiclePacket: Decodable {
         odometerKm = opt(.odometerKm)
         distSinceClearKm = opt(.distSinceClearKm)
         tripKm = opt(.tripKm)
+        restV = opt(.restV)
+        crankMinV = opt(.crankMinV)
     }
 }
 

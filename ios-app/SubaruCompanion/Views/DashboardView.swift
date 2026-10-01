@@ -44,6 +44,10 @@ struct DashboardView: View {
                                        Fmt.one(p?.consumptionL100 ?? p?.fuelRateLph),
                                        (p?.vehicleSpeed ?? 0) > 3 ? "l/100" : "l/h")
                             Spacer()
+                            if live, let range = monitor.rangeKm {
+                                inlineStat(tr("Hatótáv", "Range"), "~\(Int(range))", "km")
+                                Spacer()
+                            }
                             inlineStat(tr("Szívott levegő", "Intake air"), Fmt.int(p?.intakeTemp), "°C")
                         }
                         Divider().overlay(Theme.stroke)

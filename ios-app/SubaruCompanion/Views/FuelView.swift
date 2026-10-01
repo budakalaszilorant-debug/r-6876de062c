@@ -181,6 +181,7 @@ struct AddFillSheet: View {
             settings.odometerKm = o
             settings.odometerSet = true
         }
+        VehicleMonitor.shared.refreshAverages()
         Haptics.success()
         onSave()
         dismiss()

@@ -24,6 +24,8 @@ final class VehicleMonitor: ObservableObject {
     @Published private(set) var dataVersion = 0          // nő, ha a DB-ben változott valami
     /// Demo mód: szimulált adatok az autó nélkül. Nem ír az adatbázisba és a km órába.
     @Published private(set) var demoActive = false
+    /// Becsült hatótáv km-ben (csak ha az autó kiadja a tankszintet)
+    @Published private(set) var rangeKm: Double?
 
     private let settings = AppSettings.shared
     private let notify = NotificationManager.shared
@@ -33,6 +35,17 @@ final class VehicleMonitor: ObservableObject {
     private var lastWidgetSave = Date.distantPast
     private var lastWidgetReload = Date.distantPast
     private var lastWidgetState = ""
+    private var avgL100 = RangeEstimator.fallbackL100
+    private var leftRunningNotified = false
+    private var pendingHealth: (startId: Int, since: Date)?
+    private var lastStopAt: Double {
+        get { UserDefaults.standard.double(forKey: "lastStopAt") }
+        set { UserDefaults.standard.set(newValue, forKey: "lastStopAt") }
+    }
+    private var lowRangeNotified: Bool {
+        get { UserDefaults.standard.bool(forKey: "lowRangeNotified") }
+        set { UserDefaults.standard.set(newValue, forKey: "lowRangeNotified") }
+    }
     private var bag = Set<AnyCancellable>()
     private var timer: Timer?
     private var started = false
@@ -61,6 +74,8 @@ final class VehicleMonitor: ObservableObject {
         started = true
         parking = TripStore.latestParking()
         TripStore.closeStale(except: seenStartId)
+        refreshAverages()
+        MonthlySummary.notifyIfNewMonth()
 
         BLEManager.shared.packets
             .receive(on: DispatchQueue.main)
@@ -103,6 +118,8 @@ final class VehicleMonitor: ObservableObject {
         lastPacketAt = now
         packet = p
         isLive = true
+        leftRunningNotified = false
+        updateRange(p, notify: !demo)
 
         // Sorrend: előbb az indítási ciklus (ez nullázza a bemelegedés állapotát), utána a bemelegedés.
         if !demo {
@@ -116,6 +133,7 @@ final class VehicleMonitor: ObservableObject {
         guard !demo else { return }
 
         updateFaultCodes(p)
+        updateBatteryHealth(p, now: now)
         updateWidget(p, now: now)
 
         if recorder.active != nil {
@@ -137,6 +155,14 @@ final class VehicleMonitor: ObservableObject {
         guard let last = lastPacketAt else { return }
         let age = Date().timeIntervalSince(last)
         if age > 3, isLive { isLive = false }
+        // Járó motor mellett szakadt meg a kapcsolat: lehet, hogy járva maradt az autó.
+        if settings.featLeftRunning, !demoActive, age > 20, !leftRunningNotified, packet?.engineRunning == true {
+            leftRunningNotified = true
+            notify.send(key: "leftRunning", title: tr("⚠️ Jár a motor?", "⚠️ Engine still running?"),
+                        body: tr("Megszakadt a kapcsolat az autóval, miközben járt a motor.",
+                                 "Lost connection to the car while the engine was running."),
+                        level: .timeSensitive, throttle: 600)
+        }
         // Kapcsolat megszakadt út közben (pl. kiszálltál a telefonnal): 90 mp után az út lezárul.
         if age > 90, recorder.active != nil { endTrip() }
     }
@@ -180,6 +206,7 @@ final class VehicleMonitor: ObservableObject {
                 }
                 // Már melegen indult: nem kell értesítés erre a ciklusra.
                 if (p.coolantTemp ?? 0) >= EJ20.warmTemp { warmNotifiedStartId = p.startId }
+                if settings.featBatteryHealth { pendingHealth = (p.startId, now) }
             }
             if recorder.active == nil {
                 recorder.ensureStarted(startId: p.startId, odometer: settings.odometerKm)
@@ -190,16 +217,65 @@ final class VehicleMonitor: ObservableObject {
             if stoppedSince == nil { stoppedSince = now }
             if let s = stoppedSince, now.timeIntervalSince(s) >= 5 {
                 wasRunning = false
+                lastStopAt = now.timeIntervalSince1970
                 logVoltage(p.batteryVoltage, event: "stop")
-                endTrip()
+                endTrip(promptParking: true)
             }
         }
     }
 
-    private func endTrip() {
-        if let spot = recorder.finish() { parking = spot }
+    private func endTrip(promptParking: Bool = false) {
+        let spot = recorder.finish()
+        if let spot { parking = spot }
         trip = nil
         wasRunning = false
+        dataVersion += 1
+        refreshAverages()
+
+        // Leparkolás után felajánljuk a parkolóórát; az értesítés gombjaival az app megnyitása nélkül indítható.
+        if promptParking, spot != nil, settings.featParkingTimer, !ParkingTimer.shared.isRunning {
+            notify.send(key: "parked", title: tr("🅿️ Leparkoltál", "🅿️ Parked"),
+                        body: tr("A hely elmentve. Tartsd nyomva parkolóóra indításához.",
+                                 "Spot saved. Press and hold to start a parking timer."),
+                        category: NotificationManager.parkedCategory)
+        }
+    }
+
+    // MARK: - Hatótáv
+
+    /// Az átlagfogyasztás újraszámolása (út vége, új tankolás után).
+    func refreshAverages() {
+        avgL100 = RangeEstimator.averageL100()
+    }
+
+    private func updateRange(_ p: VehiclePacket, notify shouldNotify: Bool) {
+        guard settings.featRange, let level = p.fuelLevel else {
+            if rangeKm != nil { rangeKm = nil }
+            return
+        }
+        // 5 km-re kerekítve, hogy ne ugráljon a kijelzés
+        let km = (RangeEstimator.rangeKm(fuelLevel: level, avgL100: avgL100) / 5).rounded() * 5
+        if km != rangeKm { rangeKm = km }
+
+        guard shouldNotify else { return }
+        if km > 120 { if lowRangeNotified { lowRangeNotified = false } }
+        else if km < 50, !lowRangeNotified, p.engineRunning {
+            lowRangeNotified = true
+            notify.send(key: "lowRange", title: tr("⛽ Kevés a benzin", "⛽ Low fuel"),
+                        body: tr("Becsült hatótáv: kb. \(Int(km)) km", "Estimated range: about \(Int(km)) km"))
+        }
+    }
+
+    // MARK: - Akku egészség
+
+    /// Indítás után 15 mp-cel rögzíti a nyugalmi, az indítási és a töltőfeszültséget.
+    private func updateBatteryHealth(_ p: VehiclePacket, now: Date) {
+        guard let pending = pendingHealth, p.engineRunning, now.timeIntervalSince(pending.since) >= 15 else { return }
+        pendingHealth = nil
+        // A nyugalmi érték csak legalább 1 óra állás után mond valamit az akkuról.
+        let rested = lastStopAt == 0 || pending.since.timeIntervalSince1970 - lastStopAt >= 3600
+        BatteryHealth.record(startId: pending.startId, rest: rested ? p.restV : nil,
+                             crank: p.crankMinV, charge: p.batteryVoltage)
         dataVersion += 1
     }
 

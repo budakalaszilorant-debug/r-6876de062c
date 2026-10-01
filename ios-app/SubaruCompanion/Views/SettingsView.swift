@@ -42,6 +42,8 @@ struct SettingsView: View {
                     Text(tr("Autó", "Car"))
                 }
 
+                FeatureToggles()
+
                 Section(tr("Jármű", "Vehicle")) {
                     row(tr("Típus", "Model"), "Subaru Impreza RS (2010)")
                     row(tr("Motor", "Engine"), "EJ20 2.0 Boxer · 110 kW")

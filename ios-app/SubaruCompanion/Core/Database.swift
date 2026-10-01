@@ -52,6 +52,10 @@ final class Database {
         execute("CREATE TABLE IF NOT EXISTS dtc_log(code TEXT PRIMARY KEY, first_seen REAL, last_seen REAL, active INTEGER)")
         execute("CREATE TABLE IF NOT EXISTS service(item TEXT PRIMARY KEY, last_km REAL, last_date REAL)")
         execute("CREATE TABLE IF NOT EXISTS events(t REAL, kind TEXT, value REAL)")
+        execute("CREATE TABLE IF NOT EXISTS battery_health(t REAL, start_id INTEGER, rest_v REAL, crank_v REAL, charge_v REAL)")
+        // Bővítés meglévő táblán: ha az oszlop már létezik, a parancs hibával tér vissza, ami itt rendben van.
+        execute("ALTER TABLE trips ADD COLUMN idle_s REAL DEFAULT 0")
+        execute("ALTER TABLE trips ADD COLUMN idle_fuel_l REAL DEFAULT 0")
     }
 
     @discardableResult

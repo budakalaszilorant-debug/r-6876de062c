@@ -111,6 +111,7 @@ enum ServiceScheduler {
     static func registerBackgroundTask() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
             ServiceStore.checkAndNotify(odometer: AppSettings.shared.odometerKm)
+            MonthlySummary.notifyIfNewMonth()
             schedule()
             task.setTaskCompleted(success: true)
         }

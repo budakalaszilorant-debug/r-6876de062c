@@ -15,6 +15,21 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     private override init() {
         super.init()
         center.delegate = self
+        registerCategories()
+    }
+
+    static let parkedCategory = "PARKED"
+
+    /// A „Leparkoltál” értesítés gombjai: az app megnyitása nélkül indítanak parkolóórát.
+    private func registerCategories() {
+        let actions = ParkingTimer.presets.map { m in
+            UNNotificationAction(identifier: "PARK_\(m)",
+                                 title: m % 60 == 0 ? tr("\(m / 60) óra", "\(m / 60) h") : tr("\(m) perc", "\(m) min"),
+                                 options: [])
+        }
+        center.setNotificationCategories([
+            UNNotificationCategory(identifier: Self.parkedCategory, actions: actions, intentIdentifiers: [])
+        ])
     }
 
     func requestPermission() async {
@@ -25,10 +40,28 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     /// - Parameter throttle: ugyanazzal a kulccsal ennyi időn belül nem küld újra.
     func send(key: String, title: String, body: String, level: Level = .normal,
-              throttle: TimeInterval = 0) {
+              throttle: TimeInterval = 0, category: String? = nil) {
         if throttle > 0, let last = lastSent[key], Date().timeIntervalSince(last) < throttle { return }
         lastSent[key] = Date()
+        let content = makeContent(title: title, body: body, level: level)
+        if let category { content.categoryIdentifier = category }
+        let request = UNNotificationRequest(identifier: key + "-\(Date().timeIntervalSince1970)",
+                                            content: content, trigger: nil)
+        center.add(request)
+    }
 
+    /// Későbbre ütemezett értesítés; azonos azonosítóval a korábbit felülírja.
+    func schedule(id: String, after seconds: TimeInterval, title: String, body: String, level: Level = .normal) {
+        let content = makeContent(title: title, body: body, level: level)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, seconds), repeats: false)
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+    }
+
+    func cancel(ids: [String]) {
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+    }
+
+    private func makeContent(title: String, body: String, level: Level) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -45,9 +78,17 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             content.sound = .defaultCritical
             content.interruptionLevel = .critical
         }
-        let request = UNNotificationRequest(identifier: key + "-\(Date().timeIntervalSince1970)",
-                                            content: content, trigger: nil)
-        center.add(request)
+        return content
+    }
+
+    // Értesítés gombjának megnyomása
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completion: @escaping () -> Void) {
+        let action = response.actionIdentifier
+        if action.hasPrefix("PARK_"), let minutes = Int(action.dropFirst(5)) {
+            DispatchQueue.main.async { ParkingTimer.shared.start(minutes: minutes) }
+        }
+        completion()
     }
 
     func clearBadge() {

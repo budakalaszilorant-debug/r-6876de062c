@@ -81,6 +81,15 @@ uint32_t lastElmReply = 0;   // utoljára mikor jött '>' prompt az adaptertől
 uint32_t tElmRetry    = 0;
 char     savedProto   = 0;   // utoljára működő OBD protokoll száma (ELM jelölés), 0 = nincs
 uint32_t chargingNoEcuSince = 0;
+
+// Akku egészség: nyugalmi feszültség (alvás alatt is megmarad) és az önindítózás alatti minimum
+RTC_DATA_ATTR float rtcRestV = NAN;
+float    lastOffV  = NAN;    // utolsó feszültség levett gyújtásnál
+float    restV     = NAN;    // nyugalmi feszültség az aktuális indítás előtt
+float    crankMinV = NAN;    // minimum az aktuális indítás önindítózása alatt
+#define  V_WINDOW  16
+float    vWindow[V_WINDOW];
+uint8_t  vWindowIdx = 0;
 bool     ecuOnline   = false;
 bool     isCan       = true;
 uint8_t  ecuFails    = 0;
@@ -104,6 +113,7 @@ uint32_t seq = 0;
 uint32_t tPacket = 0, tCoolant = 0, tVoltage = 0, tSlow = 0, tDtc = 0, tDist = 0, tProbe = 0, tVin = 0, tMedium = 0;
 
 uint32_t probeTimeout();
+void captureStartVoltages();
 
 // ───────────── ELM327 kommunikáció ─────────────
 String elmSend(const String& cmd, uint32_t timeoutMs = ELM_TIMEOUT_MS) {
@@ -238,6 +248,30 @@ void markEcuResult(bool ok) {
   }
 }
 
+void clearVoltageWindow() {
+  for (int i = 0; i < V_WINDOW; i++) vWindow[i] = NAN;
+}
+
+// Ráadott gyújtás, álló motor: sűrűn mintavételezünk, hogy elkapjuk az önindítózás feszültségesését.
+void sampleCrankVoltage() {
+  float v = readAdapterVoltage();
+  if (isnan(v)) return;
+  vWindow[vWindowIdx] = v;
+  vWindowIdx = (vWindowIdx + 1) % V_WINDOW;
+}
+
+// Motorindulás pillanatában: nyugalmi érték és az utolsó másodpercek minimuma.
+void captureStartVoltages() {
+  restV = lastOffV;
+  float lo = NAN;
+  for (int i = 0; i < V_WINDOW; i++) {
+    if (!isnan(vWindow[i]) && (isnan(lo) || vWindow[i] < lo)) lo = vWindow[i];
+  }
+  // Csak akkor érvényes, ha tényleg látszott esés (különben lemaradtunk az önindítózásról).
+  crankMinV = (!isnan(lo) && !isnan(restV) && lo < restV - 0.5f) ? lo : NAN;
+  clearVoltageWindow();
+}
+
 void updateEngineState() {
   bool running = !isnan(rpm) && rpm >= RPM_RUNNING;
   if (running && !engineRunning) {
@@ -245,6 +279,7 @@ void updateEngineState() {
     if (engineStoppedAt == 0 || millis() - engineStoppedAt > 5000) {
       startId++;
       prefs.putUInt("start_id", startId);
+      captureStartVoltages();
       tripKm = 0;
       Serial.printf("[OBD] motor indítás #%u\n", startId);
     }
@@ -285,6 +320,8 @@ void pollScheduled(uint32_t now) {
       voltage = readAdapterVoltage();
       voltageSrc = "adapter";
     }
+    // Levett gyújtásnál mért érték = nyugalmi feszültség
+    if (!ecuOnline && !isnan(voltage) && voltage < CHARGING_VOLTAGE) lastOffV = voltage;
   }
 
   if (!ecuOnline) return;
@@ -403,6 +440,8 @@ String buildPacket() {
   putNum(doc, "fuel_level", fuel, 0);
   putNum(doc, "intake_temp", intake, 0);
   putNum(doc, "maf", maf, 2);
+  putNum(doc, "rest_v", restV, 2);
+  putNum(doc, "crank_min_v", crankMinV, 2);
   JsonArray arr = doc["fault_codes"].to<JsonArray>();
   for (const String& c : dtcs) arr.add(c);
   if (vin.length() == 17) doc["vin"] = vin; else doc["vin"] = nullptr;
@@ -417,6 +456,7 @@ String buildPacket() {
 
 // ───────────── Alvás ─────────────
 void goToSleep() {
+  if (!isnan(lastOffV)) rtcRestV = lastOffV;
   Serial.println("[PWR] mély alvás");
   Serial.flush();
   esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_WAKE_SEC * 1000000ULL);
@@ -449,6 +489,7 @@ void checkWakeOrSleep() {
   if (!elmInit()) return;
   float v = readAdapterVoltage();
   if (!isnan(v) && v >= CHARGING_VOLTAGE) return;
+  if (!isnan(v)) rtcRestV = v;
   uint8_t b[4];
   if (queryPid(0x00, 4, b, probeTimeout())) return;  // gyújtás ráadva
   goToSleep();
@@ -466,6 +507,8 @@ void setup() {
   savedProto = (char)prefs.getUChar("proto", 0);
 
   if (ENABLE_DEEP_SLEEP) checkWakeOrSleep();
+  lastOffV = rtcRestV;
+  clearVoltageWindow();
 
   bleInit();
   elmReady = elmInit();
@@ -508,6 +551,7 @@ void loop() {
   if (elmReady) {
     if (ecuOnline) {
       pollFast();
+      if (!engineRunning) sampleCrankVoltage();
     } else if (now - tProbe >= OFFLINE_PROBE_MS) {
       tProbe = now;
       uint8_t b[4];

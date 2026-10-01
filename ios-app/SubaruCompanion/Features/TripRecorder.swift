@@ -9,6 +9,9 @@ struct Trip: Identifiable, Equatable {
     var distanceKm: Double
     var fuelL: Double?
     var maxSpeed: Double
+    /// Álló helyzetben járó motorral töltött idő és az ezalatt elfogyott benzin
+    var idleS: Double = 0
+    var idleFuelL: Double = 0
 
     var duration: TimeInterval { (end ?? Date()).timeIntervalSince(start) }
     var avgSpeed: Double { duration > 0 ? distanceKm / (duration / 3600) : 0 }
@@ -34,10 +37,11 @@ enum TripStore {
     private static func map(_ r: Database.Row) -> Trip {
         Trip(id: r.int(0), start: Date(timeIntervalSince1970: r.double(1)),
              end: r.optDouble(2).map(Date.init(timeIntervalSince1970:)),
-             distanceKm: r.double(3), fuelL: r.optDouble(4), maxSpeed: r.double(5))
+             distanceKm: r.double(3), fuelL: r.optDouble(4), maxSpeed: r.double(5),
+             idleS: r.double(6), idleFuelL: r.double(7))
     }
 
-    private static let columns = "id, start, end_t, distance_km, fuel_l, max_speed"
+    private static let columns = "id, start, end_t, distance_km, fuel_l, max_speed, idle_s, idle_fuel_l"
 
     static func all() -> [Trip] {
         db.query("SELECT \(columns) FROM trips WHERE end_t IS NOT NULL ORDER BY start DESC", map: map)
@@ -120,6 +124,10 @@ final class TripRecorder {
         if let rate = p.fuelRateLph {
             trip.fuelL = (trip.fuelL ?? 0) + rate * dt / 3600
         }
+        if p.engineRunning, (p.vehicleSpeed ?? 0) < 2 {
+            trip.idleS += dt
+            if let rate = p.fuelRateLph { trip.idleFuelL += rate * dt / 3600 }
+        }
         active = trip
         if Date().timeIntervalSince(lastFlush) > 20 { flush() }
     }
@@ -127,8 +135,8 @@ final class TripRecorder {
     private func flush() {
         guard let t = active else { return }
         lastFlush = Date()
-        db.execute("UPDATE trips SET distance_km = ?, fuel_l = ?, max_speed = ? WHERE id = ?",
-                   [t.distanceKm, t.fuelL, t.maxSpeed, t.id])
+        db.execute("UPDATE trips SET distance_km = ?, fuel_l = ?, max_speed = ?, idle_s = ?, idle_fuel_l = ? WHERE id = ?",
+                   [t.distanceKm, t.fuelL, t.maxSpeed, t.idleS, t.idleFuelL, t.id])
     }
 
     /// - Returns: a mentett parkolási hely, ha volt GPS pozíció.

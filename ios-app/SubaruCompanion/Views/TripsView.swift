@@ -25,6 +25,7 @@ struct TripsView: View {
 
 struct TripListView: View {
     @EnvironmentObject var monitor: VehicleMonitor
+    @EnvironmentObject var settings: AppSettings
     @State private var trips: [Trip] = []
 
     var body: some View {
@@ -33,6 +34,14 @@ struct TripListView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: tr("Hol parkolok", "Where I parked"))
                     ParkingCard(spot: monitor.parking)
+                    if settings.featParkingTimer { ParkingTimerCard() }
+                }
+
+                if settings.featMonthly {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionLabel(text: tr("Havi összesítő", "Monthly summary"))
+                        MonthlySummaryCard()
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -45,7 +54,6 @@ struct TripListView: View {
                                                    "Trips record themselves from engine start to stop."))
                         }
                     } else {
-                        summary
                         ForEach(trips) { trip in
                             NavigationLink {
                                 TripDetailView(trip: trip) { reload() }
@@ -61,17 +69,6 @@ struct TripListView: View {
         }
         .onAppear(perform: reload)
         .onChange(of: monitor.dataVersion) { _ in reload() }
-    }
-
-    private var summary: some View {
-        let monthStart = Calendar.current.dateInterval(of: .month, for: Date())?.start ?? Date()
-        let month = trips.filter { $0.start >= monthStart }
-        let km = month.reduce(0) { $0 + $1.distanceKm }
-        let fuel = month.compactMap(\.fuelL).reduce(0, +)
-        return HStack(spacing: 12) {
-            StatTile(label: tr("E havi km", "Km this month"), value: Fmt.km(km), unit: "km")
-            StatTile(label: tr("Átlag", "Average"), value: km > 1 && fuel > 0 ? Fmt.one(fuel / km * 100) : "—", unit: "l/100")
-        }
     }
 
     private func reload() { trips = TripStore.all() }
@@ -107,6 +104,7 @@ struct TripRow: View {
 struct TripDetailView: View {
     let trip: Trip
     let onDelete: () -> Void
+    @EnvironmentObject var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
     @State private var route: [CLLocationCoordinate2D] = []
     @State private var confirmDelete = false
@@ -135,6 +133,10 @@ struct TripDetailView: View {
                     StatTile(label: tr("Üzemanyag", "Fuel used"), value: Fmt.two(trip.fuelL), unit: "l")
                     StatTile(label: tr("Átlagsebesség", "Avg speed"), value: Fmt.int(trip.avgSpeed), unit: "km/h")
                     StatTile(label: tr("Max sebesség", "Top speed"), value: Fmt.int(trip.maxSpeed), unit: "km/h")
+                    if settings.featIdle {
+                        StatTile(label: tr("Alapjárat", "Idling"), value: Fmt.duration(trip.idleS), unit: "")
+                        StatTile(label: tr("Alapjárati benzin", "Idle fuel"), value: Fmt.two(trip.idleFuelL), unit: "l")
+                    }
                 }
 
                 PrimaryButton(title: tr("Út törlése", "Delete trip"), icon: "trash", tint: Theme.surface2) {

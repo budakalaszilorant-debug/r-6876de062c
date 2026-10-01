@@ -97,6 +97,7 @@ struct WarmUpView: View {
 
 struct BatteryView: View {
     @EnvironmentObject var monitor: VehicleMonitor
+    @EnvironmentObject var settings: AppSettings
     @State private var log: [(t: Date, v: Double)] = []
 
     var body: some View {
@@ -128,6 +129,13 @@ struct BatteryView: View {
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(level.color)
                             .frame(maxWidth: .infinity)
+                    }
+                }
+
+                if settings.featBatteryHealth {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionLabel(text: tr("Akku egészség", "Battery health"))
+                        BatteryHealthCard()
                     }
                 }
 
