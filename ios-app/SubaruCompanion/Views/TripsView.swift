@@ -137,11 +137,6 @@ struct TripDetailView: View {
                     StatTile(label: tr("Max sebesség", "Top speed"), value: Fmt.int(trip.maxSpeed), unit: "km/h")
                 }
 
-                Text(tr("A fogyasztás a légtömegmérő adatából számolt becslés.",
-                        "Consumption is an estimate from the mass air flow sensor."))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.text3)
-
                 PrimaryButton(title: tr("Út törlése", "Delete trip"), icon: "trash", tint: Theme.surface2) {
                     confirmDelete = true
                 }

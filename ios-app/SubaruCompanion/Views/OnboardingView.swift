@@ -23,8 +23,7 @@ struct OnboardingView: View {
                 Text("Subaru Impreza RS")
                     .font(.system(size: 34, weight: .bold))
                     .tracking(-0.6)
-                Text(tr("Az app magától csatlakozik az autóhoz, amikor a közelében vagy. Egy adatot kell megadnod: a km óra állását, mert ez az autó nem adja ki OBD2-n.",
-                        "The app connects to the car by itself when you are nearby. It needs one thing from you: the odometer reading, because this car does not report it over OBD2."))
+                Text(tr("Add meg a km óra állását.", "Enter the odometer reading."))
                     .font(.system(size: 16))
                     .foregroundStyle(Theme.text2)
             }

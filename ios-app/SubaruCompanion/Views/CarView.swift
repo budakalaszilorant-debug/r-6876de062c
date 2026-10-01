@@ -76,11 +76,6 @@ struct WarmUpView: View {
                                  : (monitor.warmUp.coldStart ? tr("Hideg", "Cold") : tr("Meleg", "Warm")),
                              unit: "")
                 }
-
-                Text(tr("Az EJ20 boxer üzemi hőfoka 88–90°C. Amíg hideg, kíméld: kerüld a magas fordulatot és a nagy terhelést. Értesítést indításonként egyszer kapsz.",
-                        "The EJ20 boxer runs at 88–90°C. Go easy while it is cold: avoid high revs and heavy load. You get one notification per start."))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.text3)
             }
             .padding(16)
         }
@@ -163,11 +158,6 @@ struct BatteryView: View {
                         }
                     }
                 }
-
-                Text(tr("Járó motornál 13,8–14,7 V a normális töltés. Álló motornál 12,4 V felett egészséges az akkumulátor.",
-                        "With the engine running 13.8–14.7 V is normal charging. With it off, above 12.4 V is a healthy battery."))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.text3)
             }
             .padding(16)
         }
@@ -329,9 +319,6 @@ struct ServiceDoneSheet: View {
                         Text("km").foregroundStyle(Theme.text2)
                     }
                     DatePicker(tr("Dátum", "Date"), selection: $date, in: ...Date(), displayedComponents: .date)
-                } footer: {
-                    Text(tr("Alapból a mostani óraállás szerepel. Régebbi cserénél írd át.",
-                            "Defaults to the current reading. Change it for an earlier service."))
                 }
             }
             .navigationTitle(item.name)
@@ -388,11 +375,6 @@ struct DiagnosticsView: View {
                         }
                     }
                 }
-
-                Text(tr("Új hibakódnál azonnal értesítést kapsz. Az app csak olvassa a kódokat, törölni nem tudja őket.",
-                        "You are notified the moment a new code appears. The app only reads codes and cannot clear them."))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.text3)
             }
             .padding(16)
         }

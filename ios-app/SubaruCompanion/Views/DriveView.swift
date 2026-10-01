@@ -62,12 +62,11 @@ struct GForceView: View {
                     Haptics.tap()
                 }
 
-                Text(motion.available
-                     ? tr("A telefon legyen rögzített tartóban, kijelzővel feléd. A csúcsértékek nullázáskor törlődnek.",
-                          "Keep the phone in a fixed mount, screen facing you. Peaks reset when you zero.")
-                     : tr("Ezen az eszközön nincs mozgásérzékelő.", "Motion sensors are unavailable on this device."))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.text3)
+                if !motion.available {
+                    Text(tr("Ezen az eszközön nincs mozgásérzékelő.", "Motion sensors are unavailable on this device."))
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.text3)
+                }
             }
             .padding(16)
         }

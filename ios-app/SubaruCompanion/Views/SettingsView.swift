@@ -40,9 +40,6 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text(tr("Autó", "Car"))
-                } footer: {
-                    Text(tr("Ez az autó nem adja ki a km óra állását OBD2-n, ezért egyszer be kell írni. Utána az app a sebességből számolja tovább; tankoláskor pontosíthatod.",
-                            "This car does not report its odometer over OBD2, so enter it once. The app then counts from speed; you can correct it at each fill-up."))
                 }
 
                 Section(tr("Jármű", "Vehicle")) {
@@ -60,9 +57,6 @@ struct SettingsView: View {
                     Toggle(tr("Demo mód", "Demo mode"),
                            isOn: Binding(get: { monitor.demoActive }, set: { monitor.setDemo($0) }))
                         .tint(Theme.ok)
-                } footer: {
-                    Text(tr("Szimulált autó az app kipróbálásához. A demo adatok nem kerülnek a naplókba és a km órába.",
-                            "A simulated car for trying the app. Demo data is not written to the logs or the odometer."))
                 }
 
                 Section(tr("Diagnosztika", "Diagnostics")) {
@@ -75,9 +69,6 @@ struct SettingsView: View {
                 Section {
                     row(tr("Adatkezelés", "Data"), tr("Csak a telefonon", "On this phone only"))
                     row(tr("Autó vezérlése", "Car control"), tr("Nincs — csak olvasás", "None — read-only"))
-                } footer: {
-                    Text(tr("Nincs fiók, nincs felhő, nincs statisztika. A térkép csempéit az Apple Térképek tölti le.",
-                            "No account, no cloud, no analytics. Map tiles are loaded by Apple Maps."))
                 }
             }
             .scrollContentBackground(.hidden)

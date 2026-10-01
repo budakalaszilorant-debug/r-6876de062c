@@ -141,9 +141,6 @@ struct AddFillSheet: View {
                 Section {
                     Toggle(tr("Teli tank", "Full tank"), isOn: $full)
                     DatePicker(tr("Időpont", "Date"), selection: $date, in: ...Date())
-                } footer: {
-                    Text(tr("A fogyasztás teli tanktól teli tankig számolódik.",
-                            "Consumption is calculated from full tank to full tank."))
                 }
             }
             .navigationTitle(tr("Tankolás", "Fill-up"))
