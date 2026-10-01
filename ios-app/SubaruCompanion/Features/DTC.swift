@@ -1,11 +1,34 @@
 import Foundation
 
+/// Milyen körülmények között jött a hibakód.
+struct DTCSnapshot: Codable, Equatable {
+    /// true: az ECU saját rögzítése a hiba pillanatából; false: az app mérése az észleléskor
+    var fromEcu: Bool
+    var rpm: Double?
+    var speed: Double?
+    var coolant: Double?
+    var load: Double?
+}
+
 struct DTCRecord: Identifiable, Equatable {
     let code: String
     let firstSeen: Date
     let lastSeen: Date
     let active: Bool
+    var snapshot: DTCSnapshot?
     var id: String { code }
+}
+
+enum DTCSeverity {
+    case stop, soon, minor
+
+    var label: String {
+        switch self {
+        case .stop: return tr("Kíméld, azonnal szerviz", "Go easy, service now")
+        case .soon: return tr("Mielőbb szerviz", "Service soon")
+        case .minor: return tr("Ráér, de nézesd meg", "Not urgent, get it checked")
+        }
+    }
 }
 
 enum DTC {
@@ -42,6 +65,25 @@ enum DTC {
         "P2096": ("Katalizátor utáni keverék túl szegény", "Post-catalyst fuel trim too lean"),
     ]
 
+    private static let stopCodes: Set<String> = [
+        "P0300", "P0301", "P0302", "P0303", "P0304",   // égéskimaradás: tönkreteheti a katalizátort
+        "P0335", "P0340",                              // jeladó: leállhat a motor
+        "P0117", "P0217", "P0562"
+    ]
+    private static let minorCodes: Set<String> = [
+        "P0420", "P0442", "P0456", "P0457", "P0128", "P0031", "P0137", "P0506", "P0507"
+    ]
+
+    static func severity(_ code: String) -> DTCSeverity {
+        if stopCodes.contains(code) { return .stop }
+        return minorCodes.contains(code) ? .minor : .soon
+    }
+
+    static func saveSnapshot(_ code: String, _ snap: DTCSnapshot) {
+        guard let data = try? JSONEncoder().encode(snap), let json = String(data: data, encoding: .utf8) else { return }
+        Database.shared.execute("UPDATE dtc_log SET snap = ? WHERE code = ?", [json, code])
+    }
+
     static func describe(_ code: String) -> String {
         if let d = known[code] { return tr(d.hu, d.en) }
         switch code.first {
@@ -53,9 +95,10 @@ enum DTC {
     }
 
     static func history() -> [DTCRecord] {
-        Database.shared.query("SELECT code, first_seen, last_seen, active FROM dtc_log ORDER BY active DESC, last_seen DESC") {
+        Database.shared.query("SELECT code, first_seen, last_seen, active, snap FROM dtc_log ORDER BY active DESC, last_seen DESC") {
             DTCRecord(code: $0.string(0), firstSeen: Date(timeIntervalSince1970: $0.double(1)),
-                      lastSeen: Date(timeIntervalSince1970: $0.double(2)), active: $0.int(3) == 1)
+                      lastSeen: Date(timeIntervalSince1970: $0.double(2)), active: $0.int(3) == 1,
+                      snapshot: $0.string(4).data(using: .utf8).flatMap { try? JSONDecoder().decode(DTCSnapshot.self, from: $0) })
         }
     }
 

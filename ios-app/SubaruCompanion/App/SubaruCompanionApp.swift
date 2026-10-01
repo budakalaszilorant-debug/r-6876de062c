@@ -37,7 +37,10 @@ struct SubaruCompanionApp: App {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .background { ServiceScheduler.schedule() }
-            if phase == .active { NotificationManager.shared.clearBadge() }
+            if phase == .active {
+                NotificationManager.shared.clearBadge()
+                VehicleMonitor.shared.startLiveActivityIfNeeded()
+            }
         }
     }
 }

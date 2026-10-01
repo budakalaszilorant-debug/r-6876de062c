@@ -221,6 +221,11 @@ struct ServiceView: View {
                         ServiceRow(status: status) { editing = status.item }
                     }
                 }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: tr("Lejáratok", "Expiry dates"))
+                    RemindersCard()
+                }
             }
             .padding(16)
         }
@@ -363,20 +368,26 @@ struct DiagnosticsView: View {
                     FaultCodesCard(codes: monitor.packet?.faultCodes ?? [], known: monitor.packet != nil)
                 }
 
-                let past = history.filter { !$0.active }
-                if !past.isEmpty {
+                if !history.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
-                        SectionLabel(text: tr("Korábbi hibák", "Past faults"))
+                        SectionLabel(text: tr("Napló", "Log"))
                         Card {
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(past) { r in
-                                    VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 14) {
+                                ForEach(history) { r in
+                                    VStack(alignment: .leading, spacing: 3) {
                                         HStack {
-                                            Text(r.code).font(Theme.number(15, .bold))
+                                            Text(r.code)
+                                                .font(Theme.number(15, .bold))
+                                                .foregroundStyle(r.active ? Theme.bad : Theme.text)
                                             Spacer()
-                                            Text(Fmt.date(r.lastSeen)).font(.system(size: 12)).foregroundStyle(Theme.text3)
+                                            Text(Fmt.date(r.firstSeen)).font(.system(size: 12)).foregroundStyle(Theme.text3)
                                         }
                                         Text(DTC.describe(r.code)).font(.system(size: 14)).foregroundStyle(Theme.text2)
+                                        if let snap = r.snapshot {
+                                            Text(snapshotText(snap))
+                                                .font(.system(size: 13).monospacedDigit())
+                                                .foregroundStyle(Theme.text3)
+                                        }
                                     }
                                 }
                             }
@@ -388,5 +399,16 @@ struct DiagnosticsView: View {
         }
         .onAppear { history = DTC.history() }
         .onChange(of: monitor.dataVersion) { _ in history = DTC.history() }
+    }
+
+    /// Milyen körülmények között jött a hiba.
+    private func snapshotText(_ s: DTCSnapshot) -> String {
+        var parts: [String] = []
+        if let v = s.rpm { parts.append("\(Int(v)) \(tr("ford/p", "rpm"))") }
+        if let v = s.speed { parts.append("\(Int(v)) km/h") }
+        if let v = s.coolant { parts.append("\(Int(v))°C") }
+        if let v = s.load { parts.append("\(Int(v)) % \(tr("terhelés", "load"))") }
+        let source = s.fromEcu ? tr("Keletkezéskor", "When it occurred") : tr("Észleléskor", "When detected")
+        return source + ": " + parts.joined(separator: " · ")
     }
 }

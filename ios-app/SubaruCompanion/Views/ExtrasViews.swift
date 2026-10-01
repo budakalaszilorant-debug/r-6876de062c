@@ -86,11 +86,28 @@ struct MonthlySummaryCard: View {
 
                 Divider().overlay(Theme.stroke)
 
-                row(tr("Benzinköltség", "Fuel cost"), "\(Fmt.km(summary.cost)) Ft")
+                row(tr("Tankolások", "Fill-ups"), "\(Fmt.km(summary.cost)) Ft")
+                if settings.featTripCost {
+                    row(tr("Utak benzinköltsége", "Trip fuel cost"), "\(Fmt.km(summary.tripCost)) Ft")
+                }
+                if summary.workKm > 0 {
+                    row(tr("Munka utak", "Work trips"), "\(Fmt.km(summary.workKm)) km")
+                }
                 row(tr("Vezetési idő", "Driving time"), Fmt.duration(summary.driveSeconds))
                 if settings.featIdle {
                     row(tr("Alapjárat", "Idling"),
                         "\(Fmt.duration(summary.idleSeconds)) · \(Fmt.one(summary.idleFuelL)) l · \(Fmt.km(summary.idleCost)) Ft")
+                }
+
+                if summary.trips > 0 {
+                    ShareLink(item: MonthlySummary.csv(for: month),
+                              preview: SharePreview(tr("Útnyilvántartás", "Trip log") + " — " + MonthlySummary.title(month))) {
+                        Label(tr("Útnyilvántartás megosztása", "Share trip log"), systemImage: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(PressableStyle())
                 }
             }
         }
@@ -227,6 +244,12 @@ struct FeatureToggles: View {
             toggle(tr("Hatótáv becslés", "Range estimate"), "fuelpump", $settings.featRange)
             toggle(tr("Akku egészség", "Battery health"), "bolt.heart", $settings.featBatteryHealth)
             toggle(tr("Alapjárati idő számláló", "Idle time counter"), "hourglass", $settings.featIdle)
+            toggle(tr("Út költsége forintban", "Trip cost"), "banknote", $settings.featTripCost)
+            toggle(tr("Tankolás észlelése", "Fill-up detection"), "fuelpump.fill", $settings.featAutoFill)
+            toggle(tr("Élő tevékenység a zárolási képernyőn", "Lock screen live activity"), "lock.iphone", $settings.featLiveActivity)
+            toggle(tr("Korai túlmelegedés jelzés", "Early overheat warning"), "thermometer.high", $settings.featOverheatEarly)
+            toggle(tr("Generátor figyelő", "Alternator monitor"), "bolt.badge.clock", $settings.featAlternator)
+            toggle(tr("Rejtett fogyasztó figyelő", "Parasitic drain monitor"), "battery.25", $settings.featDrain)
         }
     }
 

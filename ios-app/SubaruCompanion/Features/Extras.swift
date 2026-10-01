@@ -60,6 +60,8 @@ struct MonthlySummary {
     var idleFuelL = 0.0
     var fuelL = 0.0        // az utak becsült fogyasztása
     var cost = 0.0         // a tankolási napló szerint
+    var workKm = 0.0       // „munka” címkéjű utak
+    var tripCost = 0.0     // az utak becsült benzinköltsége
     var liters = 0.0
 
     var avgL100: Double? { km > 1 && fuelL > 0 ? fuelL / km * 100 : nil }
@@ -79,7 +81,8 @@ struct MonthlySummary {
 
         let db = Database.shared
         _ = db.query("""
-            SELECT COUNT(*), SUM(distance_km), SUM(end_t - start), SUM(idle_s), SUM(idle_fuel_l), SUM(fuel_l)
+            SELECT COUNT(*), SUM(distance_km), SUM(end_t - start), SUM(idle_s), SUM(idle_fuel_l), SUM(fuel_l),
+                   SUM(CASE WHEN tag = 'work' THEN distance_km ELSE 0 END), SUM(cost)
             FROM trips WHERE end_t IS NOT NULL AND start >= ? AND start < ?
             """, range) { r in
             s.trips = r.int(0)
@@ -88,12 +91,30 @@ struct MonthlySummary {
             s.idleSeconds = r.double(3)
             s.idleFuelL = r.double(4)
             s.fuelL = r.double(5)
+            s.workKm = r.double(6)
+            s.tripCost = r.double(7)
         }
         _ = db.query("SELECT SUM(cost), SUM(liters) FROM fills WHERE date >= ? AND date < ?", range) { r in
             s.cost = r.double(0)
             s.liters = r.double(1)
         }
         return s
+    }
+
+    /// A hónap útjai CSV-ben (útnyilvántartáshoz).
+    static func csv(for date: Date) -> String {
+        let start = monthStart(date)
+        let end = Calendar.current.date(byAdding: .month, value: 1, to: start) ?? start
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        var out = "indulas;erkezes;km;liter;koltseg_ft;cimke\n"
+        let trips = TripStore.all().filter { $0.start >= start && $0.start < end }.reversed()
+        for t in trips {
+            let tag = t.tag == "work" ? "munka" : (t.tag == "private" ? "magan" : "")
+            out += "\(f.string(from: t.start));\(t.end.map { f.string(from: $0) } ?? "");"
+            out += String(format: "%.1f;%.2f;%.0f;", t.distanceKm, t.fuelL ?? 0, t.cost ?? 0) + tag + "\n"
+        }
+        return out
     }
 
     static func title(_ date: Date) -> String {

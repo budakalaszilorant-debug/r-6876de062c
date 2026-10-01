@@ -27,6 +27,10 @@ int main() {
   CHECK(isCommandAllowed("ATSP0"));
   CHECK(isCommandAllowed("ATSP6"));
   CHECK(isCommandAllowed(" atz "));
+  CHECK(isCommandAllowed("020C00"));     // freeze frame olvasás
+  CHECK(isCommandAllowed("020200"));
+  CHECK(!isCommandAllowed("020C01"));
+  CHECK(!isCommandAllowed("020C"));
   CHECK(!isCommandAllowed("04"));        // hibakód törlés
   CHECK(!isCommandAllowed("0400"));
   CHECK(!isCommandAllowed("08"));        // vezérlés
@@ -59,6 +63,15 @@ int main() {
   CHECK(!parsePid("410C1A", 0x0C, 2, b));          // csonka válasz
   CHECK(!parsePid("41051A", 0x0C, 1, b));          // másik PID válasza
   CHECK(parsePid("41421388", 0x42, 2, b) && (b[0] * 256 + b[1]) == 5000);
+
+  // ── Freeze frame (Mode 02) ──
+  CHECK(parseFreezePid("420C001AF8", 0x0C, 2, b) && (b[0] * 256 + b[1]) / 4 == 1726);
+  CHECK(parseFreezePid("42 05 00 7B", 0x05, 1, b) && b[0] - 40 == 83);
+  CHECK(parseFreezePid("4202000420", 0x02, 2, b) && formatDtc(b[0], b[1]) == "P0420");
+  CHECK(parseFreezePid("4202000000", 0x02, 2, b) && b[0] == 0 && b[1] == 0);   // nincs rögzített keret
+  CHECK(!parseFreezePid("NO DATA", 0x0C, 2, b));
+  CHECK(!parseFreezePid("420C00", 0x0C, 2, b));
+  CHECK(!parseFreezePid("410C1AF8", 0x0C, 2, b));
 
   // ── VIN ──
   // CAN, több keret: 49 02 01 + 17 karakter

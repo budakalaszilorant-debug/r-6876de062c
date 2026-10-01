@@ -25,10 +25,11 @@ final class Database {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         let path = url.appendingPathComponent("subaru.sqlite").path
         sqlite3_open(path, &db)
-        // Ne kerüljön iCloud mentésbe.
+        // Az adatbázis bekerül az iPhone saját (iCloud vagy számítógépes) mentésébe:
+        // új telefonra visszaállításkor minden adat visszajön.
         var u = url
         var values = URLResourceValues()
-        values.isExcludedFromBackup = true
+        values.isExcludedFromBackup = false
         try? u.setResourceValues(values)
         migrate()
     }
@@ -56,6 +57,10 @@ final class Database {
         // Bővítés meglévő táblán: ha az oszlop már létezik, a parancs hibával tér vissza, ami itt rendben van.
         execute("ALTER TABLE trips ADD COLUMN idle_s REAL DEFAULT 0")
         execute("ALTER TABLE trips ADD COLUMN idle_fuel_l REAL DEFAULT 0")
+        execute("ALTER TABLE trips ADD COLUMN tag TEXT")
+        execute("ALTER TABLE trips ADD COLUMN cost REAL")
+        execute("ALTER TABLE dtc_log ADD COLUMN snap TEXT")
+        execute("CREATE TABLE IF NOT EXISTS reminders(id TEXT PRIMARY KEY, date REAL)")
     }
 
     @discardableResult
@@ -64,6 +69,55 @@ final class Database {
         defer { sqlite3_finalize(stmt) }
         sqlite3_step(stmt)
         return Int(sqlite3_last_insert_rowid(db))
+    }
+
+    // MARK: - Mentés / visszaállítás
+
+    /// Egy tábla minden sora oszlopnév → érték párokkal.
+    func dump(table: String) -> [[String: Any]] {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT * FROM \(table)", -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        var rows: [[String: Any]] = []
+        let n = sqlite3_column_count(stmt)
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            var row: [String: Any] = [:]
+            for i in 0..<n {
+                guard let cname = sqlite3_column_name(stmt, i) else { continue }
+                let name = String(cString: cname)
+                switch sqlite3_column_type(stmt, i) {
+                case SQLITE_INTEGER: row[name] = Int(sqlite3_column_int64(stmt, i))
+                case SQLITE_FLOAT: row[name] = sqlite3_column_double(stmt, i)
+                case SQLITE_TEXT:
+                    if let text = sqlite3_column_text(stmt, i) { row[name] = String(cString: text) }
+                default: row[name] = NSNull()
+                }
+            }
+            rows.append(row)
+        }
+        return rows
+    }
+
+    /// A tábla tartalmát a megadott sorokra cseréli. Az oszlopnevek fájlból jönnek, ezért csak
+    /// betű, szám és aláhúzás lehet bennük.
+    @discardableResult
+    func replace(table: String, rows: [[String: Any]]) -> Int {
+        execute("DELETE FROM \(table)")
+        var count = 0
+        for row in rows {
+            let keys = row.keys.sorted().filter { k in
+                !k.isEmpty && k.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
+            }
+            guard !keys.isEmpty else { continue }
+            let marks = keys.map { _ in "?" }.joined(separator: ",")
+            let args: [Any?] = keys.map { k in
+                let v = row[k]
+                return v is NSNull ? nil : v
+            }
+            execute("INSERT INTO \(table)(\(keys.joined(separator: ","))) VALUES(\(marks))", args)
+            count += 1
+        }
+        return count
     }
 
     func query<T>(_ sql: String, _ args: [Any?] = [], map: (Row) -> T) -> [T] {

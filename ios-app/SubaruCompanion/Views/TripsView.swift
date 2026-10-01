@@ -77,6 +77,14 @@ struct TripListView: View {
 struct TripRow: View {
     let trip: Trip
 
+    private var subtitle: String {
+        var parts = [Fmt.duration(trip.duration), "\(Fmt.one(trip.avgConsumption)) l/100"]
+        if AppSettings.shared.featTripCost, let cost = trip.cost { parts.append("\(Fmt.km(cost)) Ft") }
+        if trip.tag == "work" { parts.append(tr("munka", "work")) }
+        if trip.tag == "private" { parts.append(tr("magán", "private")) }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
         Card {
             HStack {
@@ -84,7 +92,7 @@ struct TripRow: View {
                     Text(Fmt.date(trip.start))
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.text)
-                    Text("\(Fmt.duration(trip.duration)) · \(Fmt.one(trip.avgConsumption)) l/100")
+                    Text(subtitle)
                         .font(.system(size: 13))
                         .foregroundStyle(Theme.text2)
                 }
@@ -106,7 +114,8 @@ struct TripDetailView: View {
     let onDelete: () -> Void
     @EnvironmentObject var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
-    @State private var route: [CLLocationCoordinate2D] = []
+    @State private var track: [TrackPoint] = []
+    @State private var tag = ""
     @State private var confirmDelete = false
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
@@ -114,23 +123,33 @@ struct TripDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Group {
-                    if route.count > 1 {
-                        RouteMap(route: route, pin: route.last)
-                    } else {
-                        EmptyState(icon: "location.slash", title: tr("Nincs GPS nyomvonal", "No GPS track"),
-                                   message: tr("Ehhez az úthoz nem volt helyadat.", "No location data for this trip."))
-                            .background(Theme.surface)
-                    }
+                if track.count > 1 {
+                    TripReplayView(track: track)
+                } else {
+                    EmptyState(icon: "location.slash", title: tr("Nincs GPS nyomvonal", "No GPS track"),
+                               message: tr("Ehhez az úthoz nem volt helyadat.", "No location data for this trip."))
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
-                .frame(height: 300)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                Picker("", selection: $tag) {
+                    Text(tr("Nincs címke", "No tag")).tag("")
+                    Text(tr("Munka", "Work")).tag("work")
+                    Text(tr("Magán", "Private")).tag("private")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: tag) { value in
+                    TripStore.setTag(trip.id, value.isEmpty ? nil : value)
+                    onDelete()  // a lista frissítése
+                }
 
                 LazyVGrid(columns: columns, spacing: 12) {
                     StatTile(label: tr("Távolság", "Distance"), value: Fmt.one(trip.distanceKm), unit: "km")
                     StatTile(label: tr("Idő", "Duration"), value: Fmt.duration(trip.duration), unit: "")
                     StatTile(label: tr("Fogyasztás", "Consumption"), value: Fmt.one(trip.avgConsumption), unit: "l/100")
                     StatTile(label: tr("Üzemanyag", "Fuel used"), value: Fmt.two(trip.fuelL), unit: "l")
+                    if settings.featTripCost {
+                        StatTile(label: tr("Benzinköltség", "Fuel cost"), value: trip.cost.map(Fmt.km) ?? "—", unit: "Ft")
+                    }
                     StatTile(label: tr("Átlagsebesség", "Avg speed"), value: Fmt.int(trip.avgSpeed), unit: "km/h")
                     StatTile(label: tr("Max sebesség", "Top speed"), value: Fmt.int(trip.maxSpeed), unit: "km/h")
                     if settings.featIdle {
@@ -149,7 +168,10 @@ struct TripDetailView: View {
         .navigationTitle(Fmt.date(trip.start))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .onAppear { route = TripStore.points(trip.id) }
+        .onAppear {
+            track = TripStore.track(trip.id)
+            tag = trip.tag ?? ""
+        }
         .confirmationDialog(tr("Törlöd ezt az utat?", "Delete this trip?"), isPresented: $confirmDelete, titleVisibility: .visible) {
             Button(tr("Törlés", "Delete"), role: .destructive) {
                 TripStore.delete(trip.id)

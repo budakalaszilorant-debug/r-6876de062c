@@ -84,6 +84,11 @@ uint32_t chargingNoEcuSince = 0;
 
 // Akku egészség: nyugalmi feszültség (alvás alatt is megmarad) és az önindítózás alatti minimum
 RTC_DATA_ATTR float rtcRestV = NAN;
+// Rejtett fogyasztó figyelés: mennyit esett a feszültség állás közben
+RTC_DATA_ATTR uint32_t rtcSleepCycles = 0;   // ennyi alvási ciklus telt el az elalvás óta
+RTC_DATA_ATTR float    rtcSleepV0 = NAN;     // feszültség 1 órával az elalvás után (a felületi töltés lecsengése után)
+float    sleepV0 = NAN;
+float    sleepHours = NAN;
 float    lastOffV  = NAN;    // utolsó feszültség levett gyújtásnál
 float    restV     = NAN;    // nyugalmi feszültség az aktuális indítás előtt
 float    crankMinV = NAN;    // minimum az aktuális indítás önindítózása alatt
@@ -108,6 +113,13 @@ const char* voltageSrc = "adapter";
 double   tripKm = 0;
 uint32_t lastSpeedAt = 0;
 std::vector<String> dtcs;
+
+// A hibakód keletkezésekor az ECU által rögzített adatok
+struct FreezeFrame {
+  bool   valid = false;
+  String dtc;
+  float  rpm = NAN, speed = NAN, coolant = NAN, load = NAN;
+} freezeFrame;
 
 uint32_t seq = 0;
 uint32_t tPacket = 0, tCoolant = 0, tVoltage = 0, tSlow = 0, tDtc = 0, tDist = 0, tProbe = 0, tVin = 0, tMedium = 0;
@@ -220,8 +232,30 @@ void readVin() {
   }
 }
 
+bool queryFreeze(uint8_t pid, uint8_t n, uint8_t* out) {
+  return parseFreezePid(elmSend("02" + hex2(pid) + "00"), pid, n, out);
+}
+
+void readFreezeFrame() {
+  freezeFrame = FreezeFrame();
+  uint8_t b[4];
+  if (!queryFreeze(0x02, 2, b) || (b[0] == 0 && b[1] == 0)) return;
+  freezeFrame.dtc = formatDtc(b[0], b[1]);
+  freezeFrame.valid = true;
+  if (queryFreeze(0x0C, 2, b)) freezeFrame.rpm = (b[0] * 256 + b[1]) / 4.0f;
+  if (queryFreeze(0x0D, 1, b)) freezeFrame.speed = b[0];
+  if (queryFreeze(0x05, 1, b)) freezeFrame.coolant = b[0] - 40.0f;
+  if (queryFreeze(0x04, 1, b)) freezeFrame.load = b[0] * 100.0f / 255.0f;
+}
+
 void readDtcs() {
-  parseDtcs(elmSend("03", 3000), isCan, MAX_DTCS, dtcs);
+  std::vector<String> before = dtcs;
+  if (!parseDtcs(elmSend("03", 3000), isCan, MAX_DTCS, dtcs)) return;
+  if (dtcs.empty()) { freezeFrame = FreezeFrame(); return; }
+  // Csak akkor olvassuk újra, ha változott a lista
+  bool changed = before.size() != dtcs.size();
+  for (size_t i = 0; !changed && i < dtcs.size(); i++) changed = !(before[i] == dtcs[i]);
+  if (changed || !freezeFrame.valid) readFreezeFrame();
 }
 
 // ───────────── Járműállapot ─────────────
@@ -442,6 +476,16 @@ String buildPacket() {
   putNum(doc, "maf", maf, 2);
   putNum(doc, "rest_v", restV, 2);
   putNum(doc, "crank_min_v", crankMinV, 2);
+  putNum(doc, "sleep_v0", sleepV0, 2);
+  putNum(doc, "sleep_h", sleepHours, 1);
+  if (freezeFrame.valid) {
+    JsonObject f = doc["freeze"].to<JsonObject>();
+    f["dtc"] = freezeFrame.dtc;
+    if (!isnan(freezeFrame.rpm)) f["rpm"] = (long)lroundf(freezeFrame.rpm);
+    if (!isnan(freezeFrame.speed)) f["speed"] = (long)lroundf(freezeFrame.speed);
+    if (!isnan(freezeFrame.coolant)) f["coolant"] = (long)lroundf(freezeFrame.coolant);
+    if (!isnan(freezeFrame.load)) f["load"] = (long)lroundf(freezeFrame.load);
+  }
   JsonArray arr = doc["fault_codes"].to<JsonArray>();
   for (const String& c : dtcs) arr.add(c);
   if (vin.length() == 17) doc["vin"] = vin; else doc["vin"] = nullptr;
@@ -490,6 +534,8 @@ void checkWakeOrSleep() {
   float v = readAdapterVoltage();
   if (!isnan(v) && v >= CHARGING_VOLTAGE) return;
   if (!isnan(v)) rtcRestV = v;
+  rtcSleepCycles++;
+  if (rtcSleepCycles == 3600 / SLEEP_WAKE_SEC && !isnan(v)) rtcSleepV0 = v;
   uint8_t b[4];
   if (queryPid(0x00, 4, b, probeTimeout())) return;  // gyújtás ráadva
   goToSleep();
@@ -508,6 +554,9 @@ void setup() {
 
   if (ENABLE_DEEP_SLEEP) checkWakeOrSleep();
   lastOffV = rtcRestV;
+  // Az ébredés és az ellenőrzés ciklusonként kb. 5 mp-et tesz hozzá az alváshoz.
+  sleepV0 = rtcSleepV0;
+  sleepHours = rtcSleepCycles ? rtcSleepCycles * (SLEEP_WAKE_SEC + 5) / 3600.0f : NAN;
   clearVoltageWindow();
 
   bleInit();
@@ -568,6 +617,8 @@ void loop() {
 
   if (ENABLE_DEEP_SLEEP && !ecuOnline && millis() - lastEcuSeen > SLEEP_AFTER_MS &&
       (isnan(voltage) || voltage < CHARGING_VOLTAGE)) {
+    rtcSleepCycles = 0;      // új állási időszak kezdődik
+    rtcSleepV0 = NAN;
     goToSleep();
   }
 }

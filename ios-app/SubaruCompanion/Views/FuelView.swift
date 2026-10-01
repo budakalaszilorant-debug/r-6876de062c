@@ -3,15 +3,29 @@ import Charts
 
 struct FuelView: View {
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var monitor: VehicleMonitor
     @State private var fills: [FuelFill] = []
     @State private var showAdd = false
+    @State private var prefillLiters: Double?
 
     var body: some View {
         let stats = FuelStore.stats(fills)
 
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                PrimaryButton(title: tr("Tankolás rögzítése", "Log a fill-up"), icon: "plus") { showAdd = true }
+                if let liters = monitor.suggestedFill {
+                    SuggestedFillCard(liters: liters) {
+                        prefillLiters = liters
+                        showAdd = true
+                    } onDismiss: {
+                        monitor.dismissSuggestedFill()
+                    }
+                }
+
+                PrimaryButton(title: tr("Tankolás rögzítése", "Log a fill-up"), icon: "plus") {
+                    prefillLiters = nil
+                    showAdd = true
+                }
 
                 if fills.isEmpty {
                     Card {
@@ -73,7 +87,10 @@ struct FuelView: View {
         }
         .onAppear(perform: reload)
         .sheet(isPresented: $showAdd) {
-            AddFillSheet { reload() }
+            AddFillSheet(prefillLiters: prefillLiters) {
+                monitor.dismissSuggestedFill()
+                reload()
+            }
                 .presentationDetents([.large])
         }
     }
@@ -108,6 +125,7 @@ struct FillRow: View {
 }
 
 struct AddFillSheet: View {
+    var prefillLiters: Double? = nil
     let onSave: () -> Void
     @EnvironmentObject var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
@@ -155,6 +173,10 @@ struct AddFillSheet: View {
             }
             .onAppear {
                 if settings.odometerSet { odometer = String(Int(settings.odometerKm)) }
+                if let l = prefillLiters {
+                    liters = String(Int(l))
+                    cost = String(Int(l * settings.lastFuelPrice))
+                }
             }
         }
     }

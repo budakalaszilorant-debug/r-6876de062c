@@ -12,6 +12,10 @@ struct Trip: Identifiable, Equatable {
     /// Álló helyzetben járó motorral töltött idő és az ezalatt elfogyott benzin
     var idleS: Double = 0
     var idleFuelL: Double = 0
+    /// "work" / "private" / nil
+    var tag: String?
+    /// Az út benzinköltsége a leállításkori literárral
+    var cost: Double?
 
     var duration: TimeInterval { (end ?? Date()).timeIntervalSince(start) }
     var avgSpeed: Double { duration > 0 ? distanceKm / (duration / 3600) : 0 }
@@ -31,6 +35,12 @@ struct ParkingSpot: Equatable {
     }
 }
 
+struct TrackPoint {
+    let t: Double
+    let coordinate: CLLocationCoordinate2D
+    let speed: Double
+}
+
 enum TripStore {
     private static var db: Database { .shared }
 
@@ -38,10 +48,11 @@ enum TripStore {
         Trip(id: r.int(0), start: Date(timeIntervalSince1970: r.double(1)),
              end: r.optDouble(2).map(Date.init(timeIntervalSince1970:)),
              distanceKm: r.double(3), fuelL: r.optDouble(4), maxSpeed: r.double(5),
-             idleS: r.double(6), idleFuelL: r.double(7))
+             idleS: r.double(6), idleFuelL: r.double(7),
+             tag: r.string(8).isEmpty ? nil : r.string(8), cost: r.optDouble(9))
     }
 
-    private static let columns = "id, start, end_t, distance_km, fuel_l, max_speed, idle_s, idle_fuel_l"
+    private static let columns = "id, start, end_t, distance_km, fuel_l, max_speed, idle_s, idle_fuel_l, tag, cost"
 
     static func all() -> [Trip] {
         db.query("SELECT \(columns) FROM trips WHERE end_t IS NOT NULL ORDER BY start DESC", map: map)
@@ -54,6 +65,19 @@ enum TripStore {
     static func points(_ tripId: Int) -> [CLLocationCoordinate2D] {
         db.query("SELECT lat, lon FROM trip_points WHERE trip_id = ? ORDER BY t", [tripId]) {
             CLLocationCoordinate2D(latitude: $0.double(0), longitude: $0.double(1))
+        }
+    }
+
+    static func setTag(_ id: Int, _ tag: String?) {
+        db.execute("UPDATE trips SET tag = ? WHERE id = ?", [tag, id])
+    }
+
+    /// Pontok idővel és sebességgel, az út visszajátszásához.
+    static func track(_ tripId: Int) -> [TrackPoint] {
+        db.query("SELECT t, lat, lon, speed FROM trip_points WHERE trip_id = ? ORDER BY t", [tripId]) {
+            TrackPoint(t: $0.double(0),
+                       coordinate: CLLocationCoordinate2D(latitude: $0.double(1), longitude: $0.double(2)),
+                       speed: $0.double(3))
         }
     }
 
@@ -139,10 +163,10 @@ final class TripRecorder {
                    [t.distanceKm, t.fuelL, t.maxSpeed, t.idleS, t.idleFuelL, t.id])
     }
 
-    /// - Returns: a mentett parkolási hely, ha volt GPS pozíció.
+    /// - Returns: a mentett parkolási hely (ha volt GPS pozíció) és a lezárt út (ha valódi út volt).
     @discardableResult
-    func finish() -> ParkingSpot? {
-        guard let trip = active else { return nil }
+    func finish() -> (spot: ParkingSpot?, trip: Trip?) {
+        guard var trip = active else { return (nil, nil) }
         flush()
         cancellable = nil
         active = nil
@@ -156,9 +180,12 @@ final class TripRecorder {
 
         if trip.distanceKm < 0.2 {
             TripStore.delete(trip.id)  // csak járatás volt, nem út
-        } else {
-            db.execute("UPDATE trips SET end_t = ? WHERE id = ?", [Date().timeIntervalSince1970, trip.id])
+            return (spot, nil)
         }
-        return spot
+        trip.end = Date()
+        trip.cost = trip.fuelL.map { $0 * AppSettings.shared.lastFuelPrice }
+        db.execute("UPDATE trips SET end_t = ?, cost = ? WHERE id = ?",
+                   [Date().timeIntervalSince1970, trip.cost, trip.id])
+        return (spot, trip)
     }
 }

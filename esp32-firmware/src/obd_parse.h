@@ -25,6 +25,9 @@ inline bool isCommandAllowed(String c) {
   }
   // Protokoll választás: csak az adapter beállítása, az autónak nem megy ki semmi
   if (c.length() == 5 && c.startsWith("ATSP") && isHexChar(c[4])) return true;
+  // Mode 02: a hibakód keletkezésekor rögzített adatok (freeze frame) olvasása, 00-s keret
+  if (c.length() == 6 && c.startsWith("02") && isHexChar(c[2]) && isHexChar(c[3]) &&
+      c[4] == '0' && c[5] == '0') return true;
   if (c == "03") return true;                        // tárolt hibakódok olvasása
   if (c == "0902") return true;                      // VIN
   if (c.length() == 4 && c.startsWith("01") && isHexChar(c[2]) && isHexChar(c[3])) {
@@ -84,6 +87,20 @@ inline bool parsePid(const String& resp, uint8_t pid, uint8_t n, uint8_t* out) {
     String line = stripFramePrefix(raw);
     if (line.startsWith(prefix) && line.length() >= (unsigned)(4 + 2 * n)) {
       for (uint8_t i = 0; i < n; i++) out[i] = hexByte(line, 4 + 2 * i);
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Mode 02 válasz: "42<pid><keret>" után n adatbájt.
+inline bool parseFreezePid(const String& resp, uint8_t pid, uint8_t n, uint8_t* out) {
+  if (isElmError(resp)) return false;
+  String prefix = String("42") + hex2(pid);
+  for (const String& raw : splitLines(resp)) {
+    String line = stripFramePrefix(raw);
+    if (line.startsWith(prefix) && line.length() >= (unsigned)(6 + 2 * n)) {
+      for (uint8_t i = 0; i < n; i++) out[i] = hexByte(line, 6 + 2 * i);
       return true;
     }
   }

@@ -124,7 +124,6 @@ extension View {
     }
 }
 
-@main
 struct SubaruWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "SubaruWidget", provider: SnapshotProvider()) { entry in

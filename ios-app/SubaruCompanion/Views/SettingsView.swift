@@ -42,7 +42,13 @@ struct SettingsView: View {
                     Text(tr("Autó", "Car"))
                 }
 
+                Section {
+                    NavigationLink(tr("Műszerfal testreszabása", "Customise dashboard")) { DashboardEditor() }
+                }
+
                 FeatureToggles()
+
+                BackupSection()
 
                 Section(tr("Jármű", "Vehicle")) {
                     row(tr("Típus", "Model"), "Subaru Impreza RS (2010)")

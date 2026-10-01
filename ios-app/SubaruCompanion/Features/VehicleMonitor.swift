@@ -26,6 +26,8 @@ final class VehicleMonitor: ObservableObject {
     @Published private(set) var demoActive = false
     /// Becsült hatótáv km-ben (csak ha az autó kiadja a tankszintet)
     @Published private(set) var rangeKm: Double?
+    /// Észlelt tankolás becsült litere, amíg a felhasználó nem rögzíti vagy el nem veti
+    @Published private(set) var suggestedFill: Double?
 
     private let settings = AppSettings.shared
     private let notify = NotificationManager.shared
@@ -37,6 +39,14 @@ final class VehicleMonitor: ObservableObject {
     private var lastWidgetState = ""
     private var avgL100 = RangeEstimator.fallbackL100
     private var leftRunningNotified = false
+    /// A megszokott üzemi hűtővíz hőfok (lassan tanult átlag) a korai túlmelegedés jelzéshez
+    private var normCoolant = 90.0
+    private var chargeSum = 0.0
+    private var chargeCount = 0
+    private var lastStopFuel: Double {
+        get { UserDefaults.standard.object(forKey: "lastStopFuel") as? Double ?? -1 }
+        set { UserDefaults.standard.set(newValue, forKey: "lastStopFuel") }
+    }
     private var pendingHealth: (startId: Int, since: Date)?
     private var lastStopAt: Double {
         get { UserDefaults.standard.double(forKey: "lastStopAt") }
@@ -76,6 +86,12 @@ final class VehicleMonitor: ObservableObject {
         TripStore.closeStale(except: seenStartId)
         refreshAverages()
         MonthlySummary.notifyIfNewMonth()
+        Reminders.reschedule()
+        Backup.autoBackupIfDue()
+        let savedNorm = UserDefaults.standard.double(forKey: "normCoolant")
+        if savedNorm > 80 { normCoolant = savedNorm }
+        let savedFill = UserDefaults.standard.double(forKey: "suggestedFill")
+        if savedFill > 0 { suggestedFill = savedFill }
 
         BLEManager.shared.packets
             .receive(on: DispatchQueue.main)
@@ -133,13 +149,90 @@ final class VehicleMonitor: ObservableObject {
         guard !demo else { return }
 
         updateFaultCodes(p)
-        updateBatteryHealth(p, now: now)
+        afterStartChecks(p, now: now)
+        updateInsights(p, now: now)
         updateWidget(p, now: now)
 
         if recorder.active != nil {
             recorder.update(packet: p, dt: dt)
             trip = recorder.active
+            if settings.featLiveActivity { DriveActivity.shared.update(activityState(p)) }
         }
+    }
+
+    // MARK: - Élő tevékenység
+
+    private func activityState(_ p: VehiclePacket) -> DriveActivityAttributes.ContentState {
+        let t = recorder.active
+        return .init(speed: Int(p.vehicleSpeed ?? 0),
+                     coolant: p.coolantTemp.map { Int($0) },
+                     warm: (p.coolantTemp ?? 0) >= EJ20.warmTemp,
+                     tripKm: ((t?.distanceKm ?? 0) * 10).rounded() / 10,
+                     consumption: t?.avgConsumption.map { ($0 * 10).rounded() / 10 })
+    }
+
+    /// Az iOS csak előtérben lévő appnak engedi elindítani: az app megnyitásakor hívjuk.
+    func startLiveActivityIfNeeded() {
+        guard settings.featLiveActivity, !demoActive, let t = recorder.active, let p = packet else { return }
+        DriveActivity.shared.start(tripStart: t.start, state: activityState(p))
+    }
+
+    // MARK: - Megelőző figyelések
+
+    private func updateInsights(_ p: VehiclePacket, now: Date) {
+        guard p.engineRunning else { return }
+
+        if let c = p.coolantTemp {
+            // A megszokott üzemi hőfok lassú tanulása (csak meleg motornál, menet közben).
+            if c >= 84, c <= 100, (p.vehicleSpeed ?? 0) > 20 { normCoolant += (c - normCoolant) * 0.0002 }
+            // Korai jelzés: a megszokott fölé kúszik, de még a túlmelegedési határ alatt van.
+            if settings.featOverheatEarly, c >= normCoolant + 7, c >= 97, c < 108 {
+                notify.send(key: "overheatEarly", title: tr("🌡 Melegszik a motor", "🌡 Engine running hot"),
+                            body: tr("Hűtővíz \(Int(c))°C, a megszokott \(Int(normCoolant))°C. Vedd vissza, és figyeld.",
+                                     "Coolant \(Int(c))°C, usually \(Int(normCoolant))°C. Ease off and keep an eye on it."),
+                            level: .timeSensitive, throttle: 900)
+            }
+        }
+
+        // Töltőfeszültség átlaga az útra (generátor figyelés): az első perc után, terhelt fordulaton.
+        if let v = p.batteryVoltage, (p.rpm ?? 0) > 1200,
+           let t = recorder.active, now.timeIntervalSince(t.start) > 60 {
+            chargeSum += v
+            chargeCount += 1
+        }
+    }
+
+    /// Két egymást követő úton alacsony átlagos töltőfeszültség = gyengülő generátor vagy szíj.
+    private func checkAlternator() {
+        defer { chargeSum = 0; chargeCount = 0 }
+        guard chargeCount >= 240 else { return }  // legalább kb. 1 percnyi minta
+        let avg = chargeSum / Double(chargeCount)
+        let d = UserDefaults.standard
+        let previous = d.double(forKey: "lastChargeAvg")
+        d.set(avg, forKey: "lastChargeAvg")
+        db.execute("INSERT INTO events(t, kind, value) VALUES(?,?,?)", [Date().timeIntervalSince1970, "charge_avg", avg])
+
+        guard settings.featAlternator, avg < 13.5, previous > 0, previous < 13.5 else { return }
+        let now = Date().timeIntervalSince1970
+        guard now - d.double(forKey: "alternatorNotified") > 3 * 86400 else { return }
+        d.set(now, forKey: "alternatorNotified")
+        notify.send(key: "alternator", title: tr("⚠️ Gyenge töltés", "⚠️ Weak charging"),
+                    body: tr("Az átlagos töltőfeszültség \(String(format: "%.1f", avg)) V volt. Nézesd meg a generátort és a szíjat.",
+                             "Average charging voltage was \(String(format: "%.1f", avg)) V. Have the alternator and belt checked."),
+                    level: .timeSensitive)
+    }
+
+    /// Mentés visszaállítása után minden nézet újratölt.
+    func reloadAfterRestore() {
+        parking = TripStore.latestParking()
+        refreshAverages()
+        Reminders.reschedule()
+        dataVersion += 1
+    }
+
+    func dismissSuggestedFill() {
+        suggestedFill = nil
+        UserDefaults.standard.removeObject(forKey: "suggestedFill")
     }
 
     private func updateOverheat(_ p: VehiclePacket) {
@@ -206,11 +299,12 @@ final class VehicleMonitor: ObservableObject {
                 }
                 // Már melegen indult: nem kell értesítés erre a ciklusra.
                 if (p.coolantTemp ?? 0) >= EJ20.warmTemp { warmNotifiedStartId = p.startId }
-                if settings.featBatteryHealth { pendingHealth = (p.startId, now) }
+                pendingHealth = (p.startId, now)
             }
             if recorder.active == nil {
                 recorder.ensureStarted(startId: p.startId, odometer: settings.odometerKm)
                 trip = recorder.active
+                startLiveActivityIfNeeded()
             }
         } else if wasRunning {
             // 5 mp-ig áll a motor = tényleges leállítás (nem lefulladás utáni újraindítás)
@@ -218,6 +312,7 @@ final class VehicleMonitor: ObservableObject {
             if let s = stoppedSince, now.timeIntervalSince(s) >= 5 {
                 wasRunning = false
                 lastStopAt = now.timeIntervalSince1970
+                lastStopFuel = p.fuelLevel ?? -1
                 logVoltage(p.batteryVoltage, event: "stop")
                 endTrip(promptParking: true)
             }
@@ -225,18 +320,27 @@ final class VehicleMonitor: ObservableObject {
     }
 
     private func endTrip(promptParking: Bool = false) {
-        let spot = recorder.finish()
+        let (spot, finished) = recorder.finish()
         if let spot { parking = spot }
         trip = nil
         wasRunning = false
         dataVersion += 1
         refreshAverages()
+        checkAlternator()
+        DriveActivity.shared.end()
+        UserDefaults.standard.set(normCoolant, forKey: "normCoolant")
 
         // Leparkolás után felajánljuk a parkolóórát; az értesítés gombjaival az app megnyitása nélkül indítható.
         if promptParking, spot != nil, settings.featParkingTimer, !ParkingTimer.shared.isRunning {
+            var summary = ""
+            if settings.featTripCost, let t = finished {
+                summary = "\(Fmt.one(t.distanceKm)) km"
+                if let cost = t.cost { summary += " · \(Fmt.km(cost)) Ft" }
+                summary += ". "
+            }
             notify.send(key: "parked", title: tr("🅿️ Leparkoltál", "🅿️ Parked"),
-                        body: tr("A hely elmentve. Tartsd nyomva parkolóóra indításához.",
-                                 "Spot saved. Press and hold to start a parking timer."),
+                        body: summary + tr("Tartsd nyomva parkolóóra indításához.",
+                                           "Press and hold to start a parking timer."),
                         category: NotificationManager.parkedCategory)
         }
     }
@@ -268,14 +372,37 @@ final class VehicleMonitor: ObservableObject {
 
     // MARK: - Akku egészség
 
-    /// Indítás után 15 mp-cel rögzíti a nyugalmi, az indítási és a töltőfeszültséget.
-    private func updateBatteryHealth(_ p: VehiclePacket, now: Date) {
+    /// Indítás után 15 mp-cel: akku mérések rögzítése, rejtett fogyasztó és tankolás észlelése.
+    private func afterStartChecks(_ p: VehiclePacket, now: Date) {
         guard let pending = pendingHealth, p.engineRunning, now.timeIntervalSince(pending.since) >= 15 else { return }
         pendingHealth = nil
-        // A nyugalmi érték csak legalább 1 óra állás után mond valamit az akkuról.
-        let rested = lastStopAt == 0 || pending.since.timeIntervalSince1970 - lastStopAt >= 3600
-        BatteryHealth.record(startId: pending.startId, rest: rested ? p.restV : nil,
-                             crank: p.crankMinV, charge: p.batteryVoltage)
+
+        if settings.featBatteryHealth {
+            // A nyugalmi érték csak legalább 1 óra állás után mond valamit az akkuról.
+            let rested = lastStopAt == 0 || pending.since.timeIntervalSince1970 - lastStopAt >= 3600
+            BatteryHealth.record(startId: pending.startId, rest: rested ? p.restV : nil,
+                                 crank: p.crankMinV, charge: p.batteryVoltage)
+        }
+
+        // Rejtett fogyasztó: legalább 6 óra állás alatt 0,3 V-nál nagyobb esés.
+        if settings.featDrain, let v0 = p.sleepV0, let rest = p.restV, let hours = p.sleepH,
+           hours >= 6, v0 - rest >= 0.3 {
+            notify.send(key: "drain", title: tr("🔋 Valami meríti az akkut", "🔋 Something is draining the battery"),
+                        body: tr("Állás közben \(String(format: "%.1f", v0 - rest)) V-ot esett \(Int(hours)) óra alatt.",
+                                 "It dropped \(String(format: "%.1f", v0 - rest)) V over \(Int(hours)) hours while parked."),
+                        level: .timeSensitive)
+        }
+
+        // Tankolás észlelése: a tankszint legalább 8 %-kal nőtt a leállítás óta.
+        if settings.featAutoFill, let level = p.fuelLevel, lastStopFuel >= 0, level - lastStopFuel >= 8 {
+            let liters = ((level - lastStopFuel) / 100 * RangeEstimator.tankLiters).rounded()
+            suggestedFill = liters
+            UserDefaults.standard.set(liters, forKey: "suggestedFill")
+            lastStopFuel = level
+            notify.send(key: "autoFill", title: tr("⛽ Tankoltál?", "⛽ Did you fill up?"),
+                        body: tr("Kb. \(Int(liters)) liter került a tankba. Rögzítsd az árát az appban.",
+                                 "About \(Int(liters)) litres went in. Log the price in the app."))
+        }
         dataVersion += 1
     }
 
@@ -361,8 +488,17 @@ final class VehicleMonitor: ObservableObject {
         let fresh = DTC.update(active: p.faultCodes)
         dataVersion += 1
         for code in fresh {
+            // Ha az ECU rögzítette a hiba pillanatát, azt mentjük; különben a mostani mért értékeket.
+            let snap: DTCSnapshot
+            if let f = p.freeze, f.dtc == code {
+                snap = DTCSnapshot(fromEcu: true, rpm: f.rpm, speed: f.speed, coolant: f.coolant, load: f.load)
+            } else {
+                snap = DTCSnapshot(fromEcu: false, rpm: p.rpm, speed: p.vehicleSpeed,
+                                   coolant: p.coolantTemp, load: p.engineLoad)
+            }
+            DTC.saveSnapshot(code, snap)
             notify.send(key: "dtc-\(code)", title: tr("🚗 Hibakód: \(code)", "🚗 Fault code: \(code)"),
-                        body: DTC.describe(code), level: .timeSensitive)
+                        body: "\(DTC.describe(code)) — \(DTC.severity(code).label)", level: .timeSensitive)
         }
         if !fresh.isEmpty { Haptics.error() }
     }

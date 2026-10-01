@@ -57,6 +57,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
 
+    /// Adott időpontra ütemezett értesítés (lejárati emlékeztetők).
+    func schedule(id: String, at date: Date, title: String, body: String, level: Level = .normal) {
+        let content = makeContent(title: title, body: body, level: level)
+        let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+    }
+
     func cancel(ids: [String]) {
         center.removePendingNotificationRequests(withIdentifiers: ids)
     }

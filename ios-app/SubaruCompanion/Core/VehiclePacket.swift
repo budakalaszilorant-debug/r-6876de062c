@@ -28,9 +28,22 @@ struct VehiclePacket: Equatable {
     var restV: Double?
     /// Legalacsonyabb feszültség önindítózás közben (csak ha a modul ébren volt)
     var crankMinV: Double?
+    /// Feszültség 1 órával a leállítás után, és hány órát állt az autó (rejtett fogyasztó figyeléshez)
+    var sleepV0: Double?
+    var sleepH: Double?
+    /// A hibakód keletkezésekor az ECU által rögzített adatok
+    var freeze: FreezeFrame?
+
+    struct FreezeFrame: Decodable, Equatable {
+        var dtc: String?
+        var rpm: Double?
+        var speed: Double?
+        var coolant: Double?
+        var load: Double?
+    }
 
     enum CodingKeys: String, CodingKey {
-        case seq, ecu, elm, rpm, vin, maf
+        case seq, ecu, elm, rpm, vin, maf, freeze
         case uptimeMs = "uptime_ms"
         case engineRunning = "engine_running"
         case startId = "start_id"
@@ -48,6 +61,8 @@ struct VehiclePacket: Equatable {
         case tripKm = "trip_km"
         case restV = "rest_v"
         case crankMinV = "crank_min_v"
+        case sleepV0 = "sleep_v0"
+        case sleepH = "sleep_h"
     }
 
     /// Pillanatnyi fogyasztás l/óra a MAF-ból (benzin: AFR 14.7, sűrűség 745 g/l).
@@ -92,6 +107,9 @@ extension VehiclePacket: Decodable {
         tripKm = opt(.tripKm)
         restV = opt(.restV)
         crankMinV = opt(.crankMinV)
+        sleepV0 = opt(.sleepV0)
+        sleepH = opt(.sleepH)
+        freeze = opt(.freeze)
     }
 }
 

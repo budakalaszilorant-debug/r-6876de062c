@@ -4,12 +4,11 @@ import SwiftUI
 /// (hűtővíz, akku), legalul a ritkábban nézett motoradatok és a hibakódok.
 struct DashboardView: View {
     @EnvironmentObject var monitor: VehicleMonitor
+    @EnvironmentObject var settings: AppSettings
 
     var body: some View {
         let live = monitor.isLive
         let p = live ? monitor.packet : nil
-        let running = p?.engineRunning ?? false
-        let level = VehicleMonitor.level(for: p?.batteryVoltage, running: running)
 
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -26,60 +25,77 @@ struct DashboardView: View {
                     }
                 }
 
-                HStack(spacing: 12) {
-                    StatusCard(icon: "thermometer.medium", label: tr("Hűtővíz", "Coolant"),
-                               value: Fmt.int(p?.coolantTemp), unit: "°C",
-                               fraction: fraction(p?.coolantTemp, 0...120),
-                               tint: coolantTint(p?.coolantTemp), status: coolantStatus(p?.coolantTemp))
-                    StatusCard(icon: "bolt.fill", label: tr("Akku", "Battery"),
-                               value: Fmt.one(p?.batteryVoltage), unit: "V",
-                               fraction: fraction(p?.batteryVoltage, 11...15.5),
-                               tint: level.color, status: level.label(running: running))
+                // A többi rész sorrendje és láthatósága a Beállításokban állítható.
+                ForEach(settings.dashVisible) { section in
+                    self.section(section, p: p, live: live)
                 }
+            }
+            .padding(16)
+        }
+        .screenBackground()
+    }
 
-                Card {
-                    VStack(spacing: 14) {
-                        HStack(alignment: .top) {
-                            inlineStat(tr("Fogyasztás", "Consumption"),
-                                       Fmt.one(p?.consumptionL100 ?? p?.fuelRateLph),
-                                       (p?.vehicleSpeed ?? 0) > 3 ? "l/100" : "l/h")
+    @ViewBuilder
+    private func section(_ kind: DashSection, p: VehiclePacket?, live: Bool) -> some View {
+        let running = p?.engineRunning ?? false
+        switch kind {
+        case .status:
+            let level = VehicleMonitor.level(for: p?.batteryVoltage, running: running)
+            HStack(spacing: 12) {
+                StatusCard(icon: "thermometer.medium", label: tr("Hűtővíz", "Coolant"),
+                           value: Fmt.int(p?.coolantTemp), unit: "°C",
+                           fraction: fraction(p?.coolantTemp, 0...120),
+                           tint: coolantTint(p?.coolantTemp), status: coolantStatus(p?.coolantTemp))
+                StatusCard(icon: "bolt.fill", label: tr("Akku", "Battery"),
+                           value: Fmt.one(p?.batteryVoltage), unit: "V",
+                           fraction: fraction(p?.batteryVoltage, 11...15.5),
+                           tint: level.color, status: level.label(running: running))
+            }
+        case .engine:
+            Card {
+                VStack(spacing: 14) {
+                    HStack(alignment: .top) {
+                        inlineStat(tr("Fogyasztás", "Consumption"),
+                                   Fmt.one(p?.consumptionL100 ?? p?.fuelRateLph),
+                                   (p?.vehicleSpeed ?? 0) > 3 ? "l/100" : "l/h")
+                        Spacer()
+                        if live, let range = monitor.rangeKm {
+                            inlineStat(tr("Hatótáv", "Range"), "~\(Int(range))", "km")
                             Spacer()
-                            if live, let range = monitor.rangeKm {
-                                inlineStat(tr("Hatótáv", "Range"), "~\(Int(range))", "km")
-                                Spacer()
-                            }
-                            inlineStat(tr("Szívott levegő", "Intake air"), Fmt.int(p?.intakeTemp), "°C")
                         }
-                        Divider().overlay(Theme.stroke)
-                        BarRow(label: tr("Terhelés", "Load"), value: p?.engineLoad, tint: Theme.accent)
-                        BarRow(label: tr("Gázpedál", "Throttle"), value: p?.throttlePos, tint: Theme.accent)
-                        if p?.fuelLevel != nil {
-                            BarRow(label: tr("Tank", "Fuel"), value: p?.fuelLevel,
-                                   tint: (p?.fuelLevel ?? 100) < 15 ? Theme.warn : Theme.ok)
-                        }
+                        inlineStat(tr("Szívott levegő", "Intake air"), Fmt.int(p?.intakeTemp), "°C")
+                    }
+                    Divider().overlay(Theme.stroke)
+                    BarRow(label: tr("Terhelés", "Load"), value: p?.engineLoad, tint: Theme.accent)
+                    BarRow(label: tr("Gázpedál", "Throttle"), value: p?.throttlePos, tint: Theme.accent)
+                    if p?.fuelLevel != nil {
+                        BarRow(label: tr("Tank", "Fuel"), value: p?.fuelLevel,
+                               tint: (p?.fuelLevel ?? 100) < 15 ? Theme.warn : Theme.ok)
                     }
                 }
-
-                if let trip = monitor.trip, running {
-                    Card {
-                        VStack(alignment: .leading, spacing: 10) {
-                            SectionLabel(text: tr("Jelenlegi út", "Current trip"))
-                            HStack {
-                                tripStat(Fmt.one(trip.distanceKm), "km")
-                                Spacer()
-                                tripStat(Fmt.duration(trip.duration), "")
-                                Spacer()
+            }
+        case .trip:
+            if let trip = monitor.trip, running {
+                Card {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionLabel(text: tr("Jelenlegi út", "Current trip"))
+                        HStack {
+                            tripStat(Fmt.one(trip.distanceKm), "km")
+                            Spacer()
+                            tripStat(Fmt.duration(trip.duration), "")
+                            Spacer()
+                            if settings.featTripCost, let fuel = trip.fuelL {
+                                tripStat(Fmt.km(fuel * settings.lastFuelPrice), "Ft")
+                            } else {
                                 tripStat(Fmt.one(trip.avgConsumption), "l/100")
                             }
                         }
                     }
                 }
-
-                FaultCodesCard(codes: p?.faultCodes ?? [], known: monitor.packet != nil)
             }
-            .padding(16)
+        case .faults:
+            FaultCodesCard(codes: p?.faultCodes ?? [], known: monitor.packet != nil)
         }
-        .screenBackground()
     }
 
     private func fraction(_ v: Double?, _ range: ClosedRange<Double>) -> Double {
@@ -333,9 +349,14 @@ struct FaultCodesCard: View {
                                 .font(Theme.number(16, .bold))
                                 .foregroundStyle(Theme.bad)
                                 .frame(width: 64, alignment: .leading)
-                            Text(DTC.describe(code))
-                                .font(.system(size: 15))
-                                .foregroundStyle(Theme.text)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(DTC.describe(code))
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(Theme.text)
+                                Text(DTC.severity(code).label)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(DTC.severity(code) == .stop ? Theme.bad : Theme.warn)
+                            }
                         }
                     }
                 }
