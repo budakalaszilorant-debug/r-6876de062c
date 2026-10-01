@@ -1,0 +1,91 @@
+# Mac nélküli ellenőrzés: a GitHub felhős gépein lefordítja a firmware-t és az iOS appot.
+# Az iOS build aláírás nélkül, szimulátorra megy: csak azt mutatja meg, hogy a kód lefordul-e.
+name: build
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Értelmező tesztek
+        run: sh esp32-firmware/test/host/run.sh
+      - name: Firmware fordítás
+        run: |
+          pip install platformio
+          cd esp32-firmware && pio run
+
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Projekt generálás
+        run: |
+          brew install xcodegen
+          cd ios-app && xcodegen generate
+      - name: Fordítás (szimulátor, aláírás nélkül)
+        run: |
+          cd ios-app
+          set -o pipefail
+          xcodebuild build \
+            -project SubaruCompanion.xcodeproj \
+            -scheme SubaruCompanion \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build.log | grep -E "error:|warning: unused|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build.log
+      # Elindítja az appot a szimulátorban demo módban, és minden képernyőről képet készít.
+      - name: Képernyőképek
+        run: |
+          cd ios-app
+          APP=build/Build/Products/Debug-iphonesimulator/SubaruCompanion.app
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k in sorted(d, reverse=True) if 'iOS' in k for x in d[k] if x['name'].startswith('iPhone')))")
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+          xcrun simctl install "$UDID" "$APP"
+          mkdir -p shots
+          shot() {  # név, fül, alnézet, várakozás mp
+            xcrun simctl terminate "$UDID" hu.kocsi.subaru 2>/dev/null || true
+            xcrun simctl launch "$UDID" hu.kocsi.subaru -onboarded YES -uiDemo YES -uiTab "$2" -uiMode "$3"
+            sleep "$4"
+            xcrun simctl io "$UDID" screenshot "shots/$1.png"
+          }
+          shot 01-muszerfal 0 0 20
+          shot 02-g-ero 1 0 10
+          shot 03-utak 2 0 10
+          shot 04-tankolas 2 1 10
+          shot 05-bemelegedes 3 0 45
+          shot 06-akku 3 1 15
+          shot 07-szerviz 3 2 10
+          shot 08-hibakodok 3 3 55
+          shot 09-beallitasok 4 0 10
+          xcrun simctl terminate "$UDID" hu.kocsi.subaru || true
+          xcrun simctl launch "$UDID" hu.kocsi.subaru -onboarded NO
+          sleep 8
+          xcrun simctl io "$UDID" screenshot "shots/00-elso-inditas.png"
+      - name: Képernyőképek feltöltése
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kepernyokepek
+          path: ios-app/shots
+      # Szimulátoros app csomag: böngészős iPhone szimulátorba (pl. appetize.io) feltölthető.
+      - name: Szimulátoros app csomagolása
+        run: cd ios-app/build/Build/Products/Debug-iphonesimulator && zip -qr "$GITHUB_WORKSPACE/SubaruCompanion-simulator.zip" SubaruCompanion.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: szimulator-app
+          path: SubaruCompanion-simulator.zip
+      - name: Build napló feltöltése
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-log
+          path: ios-app/build.log

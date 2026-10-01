@@ -1,0 +1,62 @@
+# Mac-en: brew install xcodegen && xcodegen generate  -> SubaruCompanion.xcodeproj
+name: SubaruCompanion
+options:
+  bundleIdPrefix: hu.kocsi
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  SubaruCompanion:
+    type: application
+    platform: iOS
+    sources: [SubaruCompanion]
+    dependencies:
+      - target: SubaruWidget
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: hu.kocsi.subaru
+        CODE_SIGN_ENTITLEMENTS: SubaruCompanion/SubaruCompanion.entitlements
+    info:
+      path: SubaruCompanion/Info.plist
+      properties:
+        CFBundleDisplayName: Subaru
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes: [bluetooth-central, location, fetch]
+        BGTaskSchedulerPermittedIdentifiers: [hu.kocsi.subaru.servicecheck]
+        NSBluetoothAlwaysUsageDescription: "Az app Bluetooth-on olvassa az autó adatait az ESP32 modulról."
+        NSLocationWhenInUseUsageDescription: "Az utak rögzítéséhez és a parkolási hely mentéséhez."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Az utak háttérben is rögzülnek, és a parkolási hely leállításkor mentődik."
+        NSMotionUsageDescription: "A G-erő mérőhöz a telefon gyorsulásmérőjét használjuk."
+
+  # Kezdőképernyő / zárolási képernyő widget: feszültség + hűtővíz
+  SubaruWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - SubaruWidget
+      - SubaruCompanion/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: hu.kocsi.subaru.widget
+        CODE_SIGN_ENTITLEMENTS: SubaruWidget/SubaruWidget.entitlements
+    info:
+      path: SubaruWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Subaru
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
