@@ -84,3 +84,19 @@ szerviztételek és lejáratok autónként külön tárolódnak.
 
 Ellenőrzések: `sh ios-app/Tests/Garage/run.sh` macOS alatt a tényleges tároló- és
 migrációs kódot ellenőrzi. A GitHub Actions ezen felül szimulátorra és telefonra is fordít.
+
+# Bolti Bluetooth LE OBD dugó (ESP32 nélkül)
+
+Az app közvetlenül is tud beszélni egy bolti, ELM327-kompatibilis **Bluetooth LE** dugóval
+(pl. Vgate iCar Pro BLE / Bluetooth 4.0). Ilyenkor nem kell ESP32 és firmware: a lekérdezést
+maga az app végzi, ugyanazzal a csak-olvasás szűrővel (`ios-app/SubaruCompanion/Core/ElmParser.swift`).
+
+- Dugd be a dugót az OBD2 csatlakozóba, add rá a gyújtást, nyisd meg az appot.
+- A telefon Bluetooth beállításaiban **ne** párosítsd; az app magától megtalálja.
+- Az első csatlakozás után az app megjegyzi a dugót, legközelebb magától csatlakozik.
+- Beállítások → Diagnosztika: látszik, melyik eszköz csatlakozott, és ott lehet elfelejteni.
+
+Dugóval nem érhető el: az állás közbeni (éjszakai) akkufeszültség és a rejtett fogyasztó figyelés,
+mert a dugó parkoláskor alszik. Az indításkori feszültségesés csak akkor mérhető, ha az app fut.
+
+Tesztek: `sh ios-app/Tests/Elm/run.sh` (macOS), ugyanazokkal az esetekkel, mint a firmware tesztjei.

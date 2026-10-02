@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Garázs adatbázis és mentés tesztek
         run: sh ios-app/Tests/Garage/run.sh
+      - name: OBD dugó értelmező tesztek
+        run: sh ios-app/Tests/Elm/run.sh
       - name: Projekt generálás
         run: |
           brew install xcodegen
