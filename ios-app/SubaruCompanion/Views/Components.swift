@@ -79,7 +79,7 @@ struct ConnectionBar: View {
     private var adapterFault: Bool { connected && monitor.packet?.elm == false }
 
     private var text: String {
-        if monitor.demoActive { return tr("Demo mód — szimulált adatok", "Demo mode — simulated data") }
+        if monitor.demoActive { return tr("Demo mód", "Demo mode") }
         if adapterFault { return tr("Az OBD adapter nem válaszol", "OBD adapter not responding") }
         if connected { return tr("Csatlakozva", "Connected") }
         switch ble.state {
@@ -97,7 +97,9 @@ struct ConnectionBar: View {
             Text(text)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Theme.text2)
-            Spacer()
+                .lineLimit(1)
+                .layoutPriority(1)
+            Spacer(minLength: 8)
             if connected, !adapterFault, monitor.packet?.ecu == false {
                 Text(tr("Gyújtás levéve", "Ignition off"))
                     .font(.system(size: 12, weight: .medium))

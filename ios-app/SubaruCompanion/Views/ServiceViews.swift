@@ -221,7 +221,9 @@ struct ServiceRow: View {
     }
 
     private var subtitle: String {
-        var s = tr("\(Fmt.km(status.item.intervalKm)) km-enként", "Every \(Fmt.km(status.item.intervalKm)) km")
+        var s = status.item.intervalKm > 0
+            ? tr("\(Fmt.km(status.item.intervalKm)) km-enként", "Every \(Fmt.km(status.item.intervalKm)) km")
+            : tr("Csereperiódus nincs megadva", "Interval not set")
         if let km = status.lastKm {
             s += tr(" · utoljára \(Fmt.km(km)) km", " · last at \(Fmt.km(km)) km")
         }

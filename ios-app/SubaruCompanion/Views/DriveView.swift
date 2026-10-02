@@ -151,10 +151,12 @@ private struct FrictionCircle: View {
                         .stroke(i == 4 ? Theme.text3.opacity(0.5) : Theme.stroke, lineWidth: 1)
                         .frame(width: rr * 2, height: rr * 2)
                         .position(c)
-                    Text(String(format: "%.2g", scale * Double(i) / 4))
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
-                        .foregroundStyle(Theme.text3)
-                        .position(x: c.x + rr * 0.72 + 8, y: c.y - rr * 0.72 - 6)
+                    if i % 2 == 0 {
+                        Text(String(format: "%.2f g", scale * Double(i) / 4))
+                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                            .foregroundStyle(Theme.text3)
+                            .position(x: c.x + rr * 0.72 + 14, y: c.y - rr * 0.72 - 6)
+                    }
                 }
                 Path { p in
                     p.move(to: CGPoint(x: c.x, y: c.y - r)); p.addLine(to: CGPoint(x: c.x, y: c.y + r))

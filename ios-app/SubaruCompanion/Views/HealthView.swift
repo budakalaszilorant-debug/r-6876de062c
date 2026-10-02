@@ -40,7 +40,9 @@ struct HealthCheckView: View {
             }
             .onAppear {
                 // Képernyőképhez: a mérés magától indul
-                if UserDefaults.standard.bool(forKey: "uiHealth"), phase == .idle, canRun { start() }
+                if UserDefaults.standard.bool(forKey: "uiHealth"), phase == .idle {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { if phase == .idle { start() } }
+                }
             }
             .onDisappear { timer?.invalidate() }
         }
