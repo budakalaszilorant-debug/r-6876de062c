@@ -8,8 +8,8 @@ enum FuelType: String, CaseIterable, Identifiable {
     /// OBD2 PID 0x51 kódja alapján
     init?(obdCode: Int) {
         switch obdCode {
-        case 1, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22: self = .petrol
-        case 4, 23: self = .diesel
+        case 1: self = .petrol
+        case 4: self = .diesel
         default: return nil
         }
     }
@@ -44,7 +44,7 @@ struct CarTemplate: Identifiable {
     static func find(_ id: String) -> CarTemplate { all.first { $0.id == id } ?? petrol }
 
     static let fiesta = CarTemplate(
-        id: "ford_fiesta_14", name: "Ford Fiesta 1.4", fuel: .petrol, tankL: 45, warmTemp: 88, redline: 6300,
+        id: "ford_fiesta_14", name: "Ford Fiesta 2008 · 1.4 · 59 kW", fuel: .petrol, tankL: 45, warmTemp: 88, redline: 6300,
         service: [
             .init(id: "oil", hu: "Motorolaj", en: "Engine oil", intervalKm: 15_000),
             .init(id: "oil_filter", hu: "Olajszűrő", en: "Oil filter", intervalKm: 15_000),
@@ -58,7 +58,7 @@ struct CarTemplate: Identifiable {
         ])
 
     static let combo = CarTemplate(
-        id: "opel_combo_16cdti", name: "Opel Combo 1.6 CDTI", fuel: .diesel, tankL: 60, warmTemp: 85, redline: 4500,
+        id: "opel_combo_16cdti", name: "Opel Combo D · 1.6 dízel · 88 kW", fuel: .diesel, tankL: 60, warmTemp: 85, redline: 4500,
         service: [
             .init(id: "oil", hu: "Motorolaj", en: "Engine oil", intervalKm: 15_000),
             .init(id: "oil_filter", hu: "Olajszűrő", en: "Oil filter", intervalKm: 15_000),
@@ -73,7 +73,7 @@ struct CarTemplate: Identifiable {
         ])
 
     static let petrol = CarTemplate(
-        id: "generic_petrol", name: tr("Benzines autó", "Petrol car"), fuel: .petrol, tankL: 50, warmTemp: 88, redline: 6000,
+        id: "generic_petrol", name: "Benzines autó", fuel: .petrol, tankL: 50, warmTemp: 88, redline: 6000,
         service: [
             .init(id: "oil", hu: "Motorolaj", en: "Engine oil", intervalKm: 15_000),
             .init(id: "oil_filter", hu: "Olajszűrő", en: "Oil filter", intervalKm: 15_000),
@@ -85,7 +85,7 @@ struct CarTemplate: Identifiable {
         ])
 
     static let diesel = CarTemplate(
-        id: "generic_diesel", name: tr("Dízel autó", "Diesel car"), fuel: .diesel, tankL: 60, warmTemp: 85, redline: 4500,
+        id: "generic_diesel", name: "Dízel autó", fuel: .diesel, tankL: 60, warmTemp: 85, redline: 4500,
         service: [
             .init(id: "oil", hu: "Motorolaj", en: "Engine oil", intervalKm: 15_000),
             .init(id: "oil_filter", hu: "Olajszűrő", en: "Oil filter", intervalKm: 15_000),
@@ -138,8 +138,16 @@ enum CarStore {
         db.query("SELECT \(columns) FROM cars WHERE id = ?", [id], map: map).first
     }
 
+    static func key(_ name: String, car: Int? = nil) -> String {
+        "car-\(car ?? activeId)-\(name)"
+    }
+
+    static func validVIN(_ vin: String) -> Bool {
+        vin.count == 17 && vin.allSatisfy { "ABCDEFGHJKLMNPRSTUVWXYZ0123456789".contains($0) }
+    }
+
     static func find(vin: String) -> CarProfile? {
-        db.query("SELECT \(columns) FROM cars WHERE vin = ?", [vin], map: map).first
+        db.query("SELECT \(columns) FROM cars WHERE vin = ?", [vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()], map: map).first
     }
 
     static func save(_ c: CarProfile) {
@@ -158,6 +166,10 @@ enum CarStore {
 
     /// Az autó és minden adata törlődik.
     static func delete(_ id: Int) {
+        guard all().count > 1, id != activeId else { return }
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("car-\(id)-") {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
         db.execute("DELETE FROM trip_points WHERE trip_id IN (SELECT id FROM trips WHERE car_id = ?)", [id])
         for t in Database.carTables { db.execute("DELETE FROM \(t) WHERE car_id = ?", [id]) }
         db.execute("DELETE FROM cars WHERE id = ?", [id])
@@ -190,7 +202,7 @@ extension Database {
             execute("""
                 INSERT OR REPLACE INTO service_plan(car_id, item, hu, en, interval_km, critical, sort)
                 VALUES(?,?,?,?,?,?,?)
-                """, [id, s.id, s.hu, s.en, s.intervalKm, s.critical ? 1 : 0, i])
+                """, [id, s.id, s.hu, s.en, t.id == "subaru_ej20" ? s.intervalKm : 0, s.critical ? 1 : 0, i])
         }
         return id
     }
@@ -215,13 +227,18 @@ extension Database {
               PRIMARY KEY(car_id, code))
             """)
         for t in ["trips", "fills", "parking", "voltage_log", "events", "battery_health"] {
-            execute("ALTER TABLE \(t) ADD COLUMN car_id INTEGER")
+            if !query("PRAGMA table_info(\(t))", map: { $0.string(1) }).contains("car_id") {
+                execute("ALTER TABLE \(t) ADD COLUMN car_id INTEGER")
+            }
         }
 
         let d = UserDefaults.standard
         let hasData = (query("SELECT COUNT(*) FROM trips") { $0.int(0) }.first ?? 0) > 0
             || (query("SELECT COUNT(*) FROM fills") { $0.int(0) }.first ?? 0) > 0
-        let used = d.bool(forKey: "onboarded") || hasData
+        let legacyTables = ["service", "reminders", "dtc_log", "parking", "voltage_log", "events", "battery_health"]
+        let used = hasData || d.bool(forKey: "odoSet") || d.string(forKey: "vin") != nil || legacyTables.contains {
+            (query("SELECT COUNT(*) FROM \($0)") { $0.int(0) }.first ?? 0) > 0
+        }
 
         if used {
             // Az eddigi adatok a Subaru profilhoz tartoznak
@@ -239,8 +256,8 @@ extension Database {
             execute("INSERT OR IGNORE INTO dtc_hist SELECT ?, code, first_seen, last_seen, active, snap FROM dtc_log", [old])
         }
 
-        let fiesta = insertCar(template: .fiesta, name: "Ford Fiesta", vin: nil, odometer: 0, odometerSet: false)
-        insertCar(template: .combo, name: "Opel Combo", vin: nil, odometer: 0, odometerSet: false)
+        let fiesta = insertCar(template: .fiesta, name: CarTemplate.fiesta.name, vin: nil, odometer: 0, odometerSet: false)
+        insertCar(template: .combo, name: CarTemplate.combo.name, vin: nil, odometer: 0, odometerSet: false)
         d.set(fiesta, forKey: "activeCarId")
     }
 }

@@ -5,6 +5,8 @@ import SQLite3
 final class Database {
     static let shared = Database()
     private var db: OpaquePointer?
+    private var migrationFailed = false
+    private var checkingMigration = false
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     struct Row {
@@ -20,10 +22,14 @@ final class Database {
         }
     }
 
-    private init() {
+    init(path testPath: String? = nil) {
         let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        let path = url.appendingPathComponent("subaru.sqlite").path
+        #if GARAGE_TESTS
+        let path = testPath ?? ":memory:"
+        #else
+        let path = testPath ?? url.appendingPathComponent("subaru.sqlite").path
+        #endif
         sqlite3_open(path, &db)
         // Az adatbázis bekerül az iPhone saját (iCloud vagy számítógépes) mentésébe:
         // új telefonra visszaállításkor minden adat visszajön.
@@ -32,6 +38,28 @@ final class Database {
         values.isExcludedFromBackup = false
         try? u.setResourceValues(values)
         migrate()
+    }
+
+    deinit { sqlite3_close(db) }
+
+    enum StorageError: Error { case invalidStatement, failedWrite }
+
+    func checkedExecute(_ sql: String, _ args: [Any?] = []) throws {
+        guard let stmt = prepare(sql, args) else { throw StorageError.invalidStatement }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_DONE else { throw StorageError.failedWrite }
+    }
+
+    func transaction<T>(_ operation: () throws -> T) throws -> T {
+        try checkedExecute("BEGIN IMMEDIATE")
+        do {
+            let result = try operation()
+            try checkedExecute("COMMIT")
+            return result
+        } catch {
+            try? checkedExecute("ROLLBACK")
+            throw error
+        }
     }
 
     private func migrate() {
@@ -64,18 +92,32 @@ final class Database {
 
         let version = query("PRAGMA user_version") { $0.int(0) }.first ?? 0
         if version < 2 {
-            execute("BEGIN")
-            migrateToGarage()
-            execute("PRAGMA user_version = 2")
-            execute("COMMIT")
+            do {
+                try transaction {
+                    checkingMigration = true
+                    defer { checkingMigration = false }
+                    migrateToGarage()
+                    guard !migrationFailed else { throw StorageError.failedWrite }
+                    try checkedExecute("PRAGMA user_version = 2")
+                }
+            } catch {
+                fatalError("Garage migration failed; original database preserved: \(error)")
+            }
         }
     }
 
     @discardableResult
     func execute(_ sql: String, _ args: [Any?] = []) -> Int {
-        guard let stmt = prepare(sql, args) else { return 0 }
+        guard let stmt = prepare(sql, args) else {
+            if checkingMigration { migrationFailed = true }
+            return 0
+        }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_step(stmt)
+        let result = sqlite3_step(stmt)
+        guard result == SQLITE_DONE || result == SQLITE_ROW else {
+            if checkingMigration { migrationFailed = true }
+            return 0
+        }
         return Int(sqlite3_last_insert_rowid(db))
     }
 
@@ -109,20 +151,22 @@ final class Database {
     /// A tábla tartalmát a megadott sorokra cseréli. Az oszlopnevek fájlból jönnek, ezért csak
     /// betű, szám és aláhúzás lehet bennük.
     @discardableResult
-    func replace(table: String, rows: [[String: Any]]) -> Int {
-        execute("DELETE FROM \(table)")
+    func replace(table: String, rows: [[String: Any]]) throws -> Int {
+        let allowed = Set(query("PRAGMA table_info(\(table))") { $0.string(1) })
+        guard !allowed.isEmpty else { throw StorageError.invalidStatement }
+        try checkedExecute("DELETE FROM \(table)")
         var count = 0
         for row in rows {
-            let keys = row.keys.sorted().filter { k in
-                !k.isEmpty && k.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
-            }
-            guard !keys.isEmpty else { continue }
+            let keys = row.keys.sorted()
+            guard !keys.isEmpty, Set(keys).isSubset(of: allowed), row.values.allSatisfy({
+                $0 is NSNull || $0 is String || $0 is NSNumber
+            }) else { throw StorageError.invalidStatement }
             let marks = keys.map { _ in "?" }.joined(separator: ",")
             let args: [Any?] = keys.map { k in
                 let v = row[k]
                 return v is NSNull ? nil : v
             }
-            execute("INSERT INTO \(table)(\(keys.joined(separator: ","))) VALUES(\(marks))", args)
+            try checkedExecute("INSERT INTO \(table)(\(keys.joined(separator: ","))) VALUES(\(marks))", args)
             count += 1
         }
         return count

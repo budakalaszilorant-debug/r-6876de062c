@@ -33,7 +33,7 @@ final class AppSettings: ObservableObject {
     @Published var language: AppLanguage = .hu { didSet { d.set(language.rawValue, forKey: "lang") } }
 
     // Üzemanyag ár (Ft/l), a töltés űrlap előtöltéséhez és az utak költségéhez
-    @Published var lastFuelPrice: Double = 620 { didSet { d.set(lastFuelPrice, forKey: "fuelPrice") } }
+    @Published var lastFuelPrice: Double = 620 { didSet { d.set(lastFuelPrice, forKey: CarStore.key("fuelPrice", car: activeCarId)) } }
 
     // MARK: Az aktív autó adatai (a `cars` táblában tárolva, autónként külön)
 
@@ -97,7 +97,6 @@ final class AppSettings: ObservableObject {
     func load() {
         _ = Database.shared  // a migráció előbb lefusson, mert az állítja be az első autót
         language = AppLanguage(rawValue: d.string(forKey: "lang") ?? "hu") ?? .hu
-        lastFuelPrice = d.double(forKey: "fuelPrice")
         onboarded = d.bool(forKey: "onboarded")
         featParkingTimer = d.bool(forKey: "featParkingTimer")
         featLeftRunning = d.bool(forKey: "featLeftRunning")
@@ -136,6 +135,7 @@ final class AppSettings: ObservableObject {
         odometerSet = car.odometerSet
         vin = car.vin
         loadingCar = false
+        lastFuelPrice = (d.object(forKey: CarStore.key("fuelPrice", car: car.id)) as? Double) ?? 620
     }
 
     /// Az aktív autó adatai visszaíródnak a `cars` táblába.

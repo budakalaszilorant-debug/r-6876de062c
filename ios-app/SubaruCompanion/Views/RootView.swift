@@ -2,6 +2,8 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var monitor: VehicleMonitor
+    @State private var showGarage = UserDefaults.standard.bool(forKey: "uiGarage")
     @Environment(\.verticalSizeClass) private var vSize
     /// Kezdő fül; a "-uiTab N" indítási paraméter felülírja (képernyőképekhez).
     @State private var tab = UserDefaults.standard.integer(forKey: "uiTab")
@@ -21,6 +23,10 @@ struct RootView: View {
             } else {
                 VStack(spacing: 0) {
                     ConnectionBar()
+                    if monitor.needsCarSelection {
+                        Button(tr("Válaszd ki a csatlakoztatott autót", "Select the connected car")) { showGarage = true }
+                            .padding(10)
+                    }
                     TabView(selection: $tab) {
                         DashboardView()
                             .tabItem { Label(tr("Műszerfal", "Dashboard"), systemImage: "speedometer") }
@@ -44,6 +50,13 @@ struct RootView: View {
         .tint(Theme.accent)
         .screenBackground()
         .id("\(settings.language.rawValue)-\(settings.activeCarId)")  // nyelv- vagy autóváltáskor minden frissül
+        .sheet(isPresented: $showGarage) {
+            NavigationStack {
+                GarageView().toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button(tr("Kész", "Done")) { showGarage = false } }
+                }
+            }
+        }
         .fullScreenCover(isPresented: Binding(get: { !settings.onboarded }, set: { _ in })) {
             OnboardingView()
                 .preferredColorScheme(.dark)

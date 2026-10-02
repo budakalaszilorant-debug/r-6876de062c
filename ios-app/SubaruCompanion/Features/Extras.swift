@@ -11,10 +11,13 @@ final class ParkingTimer: ObservableObject {
 
     @Published private(set) var end: Date?
 
-    private let key = "parkTimerEnd"
-    private let ids = ["parkTimer-warn", "parkTimer-end"]
+    private var key: String { CarStore.key("parkTimerEnd") }
+    private var ids: [String] { [CarStore.key("parkTimer-warn"), CarStore.key("parkTimer-end")] }
 
-    private init() {
+    private init() { reload() }
+
+    func reload() {
+        end = nil
         let t = UserDefaults.standard.double(forKey: key)
         if t > Date().timeIntervalSince1970 { end = Date(timeIntervalSince1970: t) }
     }
@@ -128,7 +131,7 @@ struct MonthlySummary {
     /// Hónapváltáskor egyszer értesít az előző hónap összesítőjével.
     static func notifyIfNewMonth() {
         guard AppSettings.shared.featMonthly else { return }
-        let key = "summaryMonth"
+        let key = CarStore.key("summaryMonth")
         let current = monthStart(Date()).timeIntervalSince1970
         let stored = UserDefaults.standard.double(forKey: key)
         guard stored != current else { return }
@@ -215,7 +218,7 @@ enum BatteryHealth {
             [Date().timeIntervalSince1970, startId, rest, crank, charge, CarStore.activeId])
 
         guard grade(rest: rest, crank: crank) == .weak else { return }
-        let key = "battWeakNotified"
+        let key = CarStore.key("battWeakNotified")
         let now = Date().timeIntervalSince1970
         guard now - UserDefaults.standard.double(forKey: key) > 7 * 86400 else { return }
         UserDefaults.standard.set(now, forKey: key)

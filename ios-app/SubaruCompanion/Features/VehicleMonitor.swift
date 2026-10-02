@@ -44,17 +44,17 @@ final class VehicleMonitor: ObservableObject {
     private var chargeSum = 0.0
     private var chargeCount = 0
     private var lastStopFuel: Double {
-        get { UserDefaults.standard.object(forKey: "lastStopFuel") as? Double ?? -1 }
-        set { UserDefaults.standard.set(newValue, forKey: "lastStopFuel") }
+        get { UserDefaults.standard.object(forKey: CarStore.key("lastStopFuel")) as? Double ?? -1 }
+        set { UserDefaults.standard.set(newValue, forKey: CarStore.key("lastStopFuel")) }
     }
     private var pendingHealth: (startId: Int, since: Date)?
     private var lastStopAt: Double {
-        get { UserDefaults.standard.double(forKey: "lastStopAt") }
-        set { UserDefaults.standard.set(newValue, forKey: "lastStopAt") }
+        get { UserDefaults.standard.double(forKey: CarStore.key("lastStopAt")) }
+        set { UserDefaults.standard.set(newValue, forKey: CarStore.key("lastStopAt")) }
     }
     private var lowRangeNotified: Bool {
-        get { UserDefaults.standard.bool(forKey: "lowRangeNotified") }
-        set { UserDefaults.standard.set(newValue, forKey: "lowRangeNotified") }
+        get { UserDefaults.standard.bool(forKey: CarStore.key("lowRangeNotified")) }
+        set { UserDefaults.standard.set(newValue, forKey: CarStore.key("lowRangeNotified")) }
     }
     private var bag = Set<AnyCancellable>()
     private var timer: Timer?
@@ -63,12 +63,18 @@ final class VehicleMonitor: ObservableObject {
     private var lastPacketAt: Date?
     private var coolantSamples: [(t: Date, temp: Double)] = []
     private var warmNotifiedStartId: Int {
-        get { UserDefaults.standard.integer(forKey: "warmStartId") }
-        set { UserDefaults.standard.set(newValue, forKey: "warmStartId") }
+        get { UserDefaults.standard.integer(forKey: CarStore.key("warmStartId")) }
+        set { UserDefaults.standard.set(newValue, forKey: CarStore.key("warmStartId")) }
     }
+    @Published private(set) var needsCarSelection = false
+    @Published private(set) var pendingVIN: String?
+    private var selectedForConnection = false
+    private var latestUnassignedPacket: VehiclePacket?
+    var canManageGarage: Bool { demoActive || (!isLive && recorder.active == nil && BLEManager.shared.state != .connected) }
+
     private var seenStartId: Int {
-        get { UserDefaults.standard.integer(forKey: "seenStartId") }
-        set { UserDefaults.standard.set(newValue, forKey: "seenStartId") }
+        get { UserDefaults.standard.integer(forKey: CarStore.key("seenStartId")) }
+        set { UserDefaults.standard.set(newValue, forKey: CarStore.key("seenStartId")) }
     }
     private var pendingKm = 0.0
     private var lowVoltageSince: Date?
@@ -88,10 +94,19 @@ final class VehicleMonitor: ObservableObject {
         MonthlySummary.notifyIfNewMonth()
         Reminders.reschedule()
         Backup.autoBackupIfDue()
-        let savedNorm = UserDefaults.standard.double(forKey: "normCoolant")
+        let savedNorm = UserDefaults.standard.double(forKey: CarStore.key("normCoolant"))
         if savedNorm > 80 { normCoolant = savedNorm }
-        let savedFill = UserDefaults.standard.double(forKey: "suggestedFill")
+        let savedFill = UserDefaults.standard.double(forKey: CarStore.key("suggestedFill"))
         if savedFill > 0 { suggestedFill = savedFill }
+
+        BLEManager.shared.$state.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard state != .connected else { return }
+                self?.selectedForConnection = false
+                self?.needsCarSelection = false
+                self?.pendingVIN = nil
+                self?.latestUnassignedPacket = nil
+            }.store(in: &bag)
 
         BLEManager.shared.packets
             .receive(on: DispatchQueue.main)
@@ -112,7 +127,11 @@ final class VehicleMonitor: ObservableObject {
 
     func setDemo(_ on: Bool) {
         guard on != demoActive else { return }
+        if on, recorder.active != nil { endTrip() }
         demoActive = on
+        selectedForConnection = false
+        needsCarSelection = false
+        pendingVIN = nil
         coolantSamples.removeAll()
         lowVoltageSince = nil
         highVoltageSince = nil
@@ -129,8 +148,32 @@ final class VehicleMonitor: ObservableObject {
     }
 
     private func process(_ p: VehiclePacket, demo: Bool) {
+        if !demo {
+            if !p.ecu && !selectedForConnection {
+                packet = nil
+                isLive = false
+                return
+            }
+            let vin = p.vin?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if let vin, CarStore.validVIN(vin), let car = CarStore.find(vin: vin) {
+                switchCar(to: car.id, announce: false)
+                selectedForConnection = true
+                needsCarSelection = false
+                pendingVIN = nil
+                latestUnassignedPacket = nil
+            } else if !selectedForConnection || (vin.map(CarStore.validVIN) == true && vin != settings.vin) {
+                if recorder.active != nil { endTrip() }
+                latestUnassignedPacket = p
+                pendingVIN = vin.flatMap { CarStore.validVIN($0) ? $0 : nil }
+                needsCarSelection = true
+                packet = nil
+                isLive = false
+                lastPacketAt = nil
+                return
+            }
+        }
         let now = Date()
-        let dt = min(2, lastPacketAt.map { now.timeIntervalSince($0) } ?? 0)
+        let dt = max(0, min(2, lastPacketAt.map { now.timeIntervalSince($0) } ?? 0))
         lastPacketAt = now
         packet = p
         isLive = true
@@ -139,14 +182,13 @@ final class VehicleMonitor: ObservableObject {
 
         // Sorrend: előbb az indítási ciklus (ez nullázza a bemelegedés állapotát), utána a bemelegedés.
         if !demo {
-            if let vin = p.vin, vin.count == 17, vin != settings.vin { identifyCar(vin: vin, fuelCode: p.fuelType) }
             updateOdometer(p, dt: dt)
             updateEngineCycle(p, now: now)
         }
         updateWarmUp(p, now: now)
-        updateVoltage(p, now: now, log: !demo)
-        updateOverheat(p)
         guard !demo else { return }
+        updateVoltage(p, now: now, log: true)
+        updateOverheat(p)
 
         updateFaultCodes(p)
         afterStartChecks(p, now: now)
@@ -208,15 +250,15 @@ final class VehicleMonitor: ObservableObject {
         guard chargeCount >= 240 else { return }  // legalább kb. 1 percnyi minta
         let avg = chargeSum / Double(chargeCount)
         let d = UserDefaults.standard
-        let previous = d.double(forKey: "lastChargeAvg")
-        d.set(avg, forKey: "lastChargeAvg")
+        let previous = d.double(forKey: CarStore.key("lastChargeAvg"))
+        d.set(avg, forKey: CarStore.key("lastChargeAvg"))
         db.execute("INSERT INTO events(t, kind, value, car_id) VALUES(?,?,?,?)",
                    [Date().timeIntervalSince1970, "charge_avg", avg, CarStore.activeId])
 
         guard settings.featAlternator, avg < 13.5, previous > 0, previous < 13.5 else { return }
         let now = Date().timeIntervalSince1970
-        guard now - d.double(forKey: "alternatorNotified") > 3 * 86400 else { return }
-        d.set(now, forKey: "alternatorNotified")
+        guard now - d.double(forKey: CarStore.key("alternatorNotified")) > 3 * 86400 else { return }
+        d.set(now, forKey: CarStore.key("alternatorNotified"))
         notify.send(key: "alternator", title: tr("⚠️ Gyenge töltés", "⚠️ Weak charging"),
                     body: tr("Az átlagos töltőfeszültség \(String(format: "%.1f", avg)) V volt. Nézesd meg a generátort és a szíjat.",
                              "Average charging voltage was \(String(format: "%.1f", avg)) V. Have the alternator and belt checked."),
@@ -225,15 +267,29 @@ final class VehicleMonitor: ObservableObject {
 
     /// Mentés visszaállítása után minden nézet újratölt.
     func reloadAfterRestore() {
+        packet = nil
+        isLive = false
+        lastPacketAt = nil
+        selectedForConnection = false
+        lastCodes = nil
+        pendingHealth = nil
+        chargeSum = 0
+        chargeCount = 0
+        warmUp = WarmUpState()
+        coolantSamples.removeAll()
+        pendingKm = 0
+        rangeKm = nil
+        suggestedFill = nil
         parking = TripStore.latestParking()
         refreshAverages()
+        ParkingTimer.shared.reload()
         Reminders.reschedule()
         dataVersion += 1
     }
 
     func dismissSuggestedFill() {
         suggestedFill = nil
-        UserDefaults.standard.removeObject(forKey: "suggestedFill")
+        UserDefaults.standard.removeObject(forKey: CarStore.key("suggestedFill"))
     }
 
     private func updateOverheat(_ p: VehiclePacket) {
@@ -263,31 +319,22 @@ final class VehicleMonitor: ObservableObject {
 
     // MARK: - Garázs
 
-    /// VIN alapján kiválasztja az autót. Ismeretlen VIN-nél egy még VIN nélküli profilhoz rendeli
-    /// (az üzemanyag típusa alapján), vagy új profilt hoz létre.
-    private func identifyCar(vin: String, fuelCode: Int?) {
-        if let known = CarStore.find(vin: vin) {
-            switchCar(to: known.id, announce: true)
-            return
-        }
-        let fuel = fuelCode.flatMap(FuelType.init(obdCode:))
-        let free = CarStore.all().filter { $0.vin == nil && (fuel == nil || $0.fuel == fuel) }
-        if let target = free.first(where: { $0.id == settings.activeCarId }) ?? free.first {
-            switchCar(to: target.id, announce: true)
-            settings.vin = vin
-            return
-        }
-        let template = fuel == .diesel ? CarTemplate.diesel : CarTemplate.petrol
-        let id = CarStore.create(from: template, name: tr("Új autó", "New car"), vin: vin)
+    /// Unknown VINs are associated only after an explicit choice. With no VIN the choice lasts one BLE connection.
+    func confirmCar(_ id: Int) {
+        guard needsCarSelection, let car = CarStore.get(id), let p = latestUnassignedPacket else { return }
+        if let pendingVIN, let existing = car.vin, existing != pendingVIN { return }
         switchCar(to: id, announce: false)
-        notify.send(key: "newCar", title: tr("🚗 Új autó", "🚗 New car"),
-                    body: tr("Ismeretlen autóhoz csatlakoztál. Add meg a nevét és a km óra állását a Garázsban.",
-                             "You connected to an unknown car. Set its name and odometer in the Garage."))
+        if let pendingVIN { settings.vin = pendingVIN }
+        selectedForConnection = true
+        needsCarSelection = false
+        pendingVIN = nil
+        latestUnassignedPacket = nil
+        process(p, demo: false)
     }
 
     /// Átvált egy másik autóra: a folyamatban lévő út lezárul, minden autófüggő állapot újraindul.
     func switchCar(to id: Int, announce: Bool) {
-        guard id != settings.activeCarId else { return }
+        guard id != settings.activeCarId, CarStore.get(id) != nil else { return }
         if recorder.active != nil { endTrip() }
         settings.activate(id)
 
@@ -300,9 +347,24 @@ final class VehicleMonitor: ObservableObject {
         rangeKm = nil
         chargeSum = 0
         chargeCount = 0
-        normCoolant = settings.warmTemp + 2
-        lastStopFuel = -1
-        dismissSuggestedFill()
+        let savedNorm = UserDefaults.standard.double(forKey: CarStore.key("normCoolant"))
+        normCoolant = savedNorm > 0 ? savedNorm : settings.warmTemp + 2
+        suggestedFill = UserDefaults.standard.object(forKey: CarStore.key("suggestedFill")) as? Double
+        pendingHealth = nil
+        stoppedSince = nil
+        wasRunning = false
+        lastPacketAt = nil
+        packet = nil
+        isLive = false
+        lowVoltageSince = nil
+        highVoltageSince = nil
+        lastVoltageLog = .distantPast
+        lastWidgetSave = .distantPast
+        lastWidgetState = ""
+        WidgetSnapshot(voltage: nil, coolant: nil, engineRunning: false, updated: Date()).save()
+        WidgetCenter.shared.reloadAllTimelines()
+        ParkingTimer.shared.reload()
+        MonthlySummary.notifyIfNewMonth()
         dataVersion += 1
 
         if announce {
@@ -379,7 +441,7 @@ final class VehicleMonitor: ObservableObject {
         refreshAverages()
         checkAlternator()
         DriveActivity.shared.end()
-        UserDefaults.standard.set(normCoolant, forKey: "normCoolant")
+        UserDefaults.standard.set(normCoolant, forKey: CarStore.key("normCoolant"))
 
         // Leparkolás után felajánljuk a parkolóórát; az értesítés gombjaival az app megnyitása nélkül indítható.
         if promptParking, spot != nil, settings.featParkingTimer, !ParkingTimer.shared.isRunning {
@@ -448,7 +510,7 @@ final class VehicleMonitor: ObservableObject {
         if settings.featAutoFill, let level = p.fuelLevel, lastStopFuel >= 0, level - lastStopFuel >= 8 {
             let liters = ((level - lastStopFuel) / 100 * RangeEstimator.tankLiters).rounded()
             suggestedFill = liters
-            UserDefaults.standard.set(liters, forKey: "suggestedFill")
+            UserDefaults.standard.set(liters, forKey: CarStore.key("suggestedFill"))
             lastStopFuel = level
             notify.send(key: "autoFill", title: tr("⛽ Tankoltál?", "⛽ Did you fill up?"),
                         body: tr("Kb. \(Int(liters)) liter került a tankba. Rögzítsd az árát az appban.",
@@ -477,7 +539,7 @@ final class VehicleMonitor: ObservableObject {
         if warmUp.isWarm != warm { warmUp.isWarm = warm }
         if warmUp.etaMinutes.map({ Int($0 * 2) }) != eta.map({ Int($0 * 2) }) { warmUp.etaMinutes = eta }
 
-        if warm, warmNotifiedStartId != p.startId {
+        if !demoActive, warm, warmNotifiedStartId != p.startId {
             warmNotifiedStartId = p.startId   // indítási ciklusonként egyszer
             notify.send(key: "warm", title: settings.carName,
                         body: tr("Motor felmelegedett ✓ (\(Int(c))°C)", "Engine warmed up ✓ (\(Int(c))°C)"))

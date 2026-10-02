@@ -41,10 +41,12 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// - Parameter throttle: ugyanazzal a kulccsal ennyi időn belül nem küld újra.
     func send(key: String, title: String, body: String, level: Level = .normal,
               throttle: TimeInterval = 0, category: String? = nil) {
+        let key = CarStore.key(key)
         if throttle > 0, let last = lastSent[key], Date().timeIntervalSince(last) < throttle { return }
         lastSent[key] = Date()
         let content = makeContent(title: title, body: body, level: level)
         if let category { content.categoryIdentifier = category }
+        content.userInfo["carId"] = CarStore.activeId
         let request = UNNotificationRequest(identifier: key + "-\(Date().timeIntervalSince1970)",
                                             content: content, trigger: nil)
         center.add(request)
@@ -103,7 +105,11 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                                 withCompletionHandler completion: @escaping () -> Void) {
         let action = response.actionIdentifier
         if action.hasPrefix("PARK_"), let minutes = Int(action.dropFirst(5)) {
-            DispatchQueue.main.async { ParkingTimer.shared.start(minutes: minutes) }
+            DispatchQueue.main.async {
+                let carId = response.notification.request.content.userInfo["carId"] as? Int
+                guard carId == nil || carId == CarStore.activeId else { return }
+                ParkingTimer.shared.start(minutes: minutes)
+            }
         }
         completion()
     }

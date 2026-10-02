@@ -25,7 +25,7 @@ targets:
     info:
       path: SubaruCompanion/Info.plist
       properties:
-        CFBundleDisplayName: Subaru
+        CFBundleDisplayName: Garázs
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -59,7 +59,7 @@ targets:
     info:
       path: SubaruWidget/Info.plist
       properties:
-        CFBundleDisplayName: Subaru
+        CFBundleDisplayName: Garázs
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:

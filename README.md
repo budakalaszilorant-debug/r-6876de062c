@@ -61,3 +61,27 @@ Az app Beállítások → Diagnosztika része megmutatja:
 - jönnek-e csomagok az ESP32-ről (Fogadott csomagok nő),
 - válaszol-e az ELM327 adapter az ESP32-nek,
 - válaszol-e a motorvezérlő (gyújtás nélkül nem fog).
+# Kétautós Garázs
+
+A Beállítások → Garázs alatt külön profil tartozik a 2008-as Ford Fiesta 1.4 benzineshez
+(59 kW, 1388 cm³) és az Opel Combo D 1.6 dízelhez (88 kW, 1598 cm³).
+A név, VIN, üzemanyag, óraállás, tankméret és kijelzési küszöbök szerkeszthetők;
+új autó is hozzáadható. Az utak, tankolások, hibakódok, akkumulátoradatok, parkolóhelyek,
+szerviztételek és lejáratok autónként külön tárolódnak.
+
+- Első kapcsolatkor válaszd ki a csatlakoztatott autót. Ezután az ismert VIN alapján
+  automatikusan vált. VIN nélkül minden új Bluetooth-kapcsolatnál választani kell.
+- Valós kapcsolat közben kézi autóváltás és adat-visszaállítás nem elérhető.
+- A szervizterv a Garázsban külön szerkeszthető, a csere rögzítése nélkül is.
+  Az új Ford/Opel profilok km-intervallumai beállításra várnak: az app nem állítja,
+  hogy a sablon gyári szervizelőírás. Az évjárat és motorkód szerinti szervizkönyvet használd.
+- Dízel esetén a pillanatnyi fogyasztás csak az ECU közvetlen üzemanyagáram-adatából
+  jelenik meg, ha támogatott. A tankolási napló ettől függetlenül használható.
+- A régi adatokat a frissítés külön korábbi profilban őrzi meg. Az új mentés az összes
+  autót tartalmazza, hibás importnál az adatbázis változatlan marad.
+- Frissítsd az ESP32 firmware-t is: a modul új kapcsolatkor újra kiolvassa a VIN-t,
+  és nem használja egy korábbi autó elmentett VIN-jét.
+
+Ellenőrzések: `sh ios-app/Tests/Garage/run.sh` macOS alatt a tényleges tároló- és
+migrációs kódot ellenőrzi. A GitHub Actions ezen felül szimulátorra és telefonra is fordít.
+

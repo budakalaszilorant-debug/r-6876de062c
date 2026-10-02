@@ -24,6 +24,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Garázs adatbázis és mentés tesztek
+        run: sh ios-app/Tests/Garage/run.sh
       - name: Projekt generálás
         run: |
           brew install xcodegen
@@ -66,6 +68,10 @@ jobs:
           shot 07-szerviz 3 2 10
           shot 08-hibakodok 3 3 55
           shot 09-beallitasok 4 0 10
+          xcrun simctl terminate "$UDID" hu.kocsi.subaru 2>/dev/null || true
+          xcrun simctl launch "$UDID" hu.kocsi.subaru -onboarded YES -uiDemo YES -uiTab 4 -uiGarage YES
+          sleep 10
+          xcrun simctl io "$UDID" screenshot "shots/11-garazs.png"
           xcrun simctl terminate "$UDID" hu.kocsi.subaru 2>/dev/null || true
           xcrun simctl launch "$UDID" hu.kocsi.subaru -onboarded YES -uiDemo YES -uiTab 3 -uiMode 3 -uiHealth YES
           sleep 55

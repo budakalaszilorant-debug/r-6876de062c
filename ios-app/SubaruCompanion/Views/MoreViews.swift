@@ -172,7 +172,7 @@ struct BackupSection: View {
                     message = tr("A mentés nem sikerült.", "Backup failed.")
                 }
             }
-            Button(tr("Visszaállítás fájlból", "Restore from file")) { importing = true }
+            Button(tr("Visszaállítás fájlból", "Restore from file")) { importing = true }.disabled(!monitor.canManageGarage)
         }
         .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } })) {
             if let shareURL { ActivityView(items: [shareURL]) }
@@ -183,7 +183,7 @@ struct BackupSection: View {
         .alert(tr("Visszaállítod az adatokat?", "Restore data?"),
                isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } })) {
             Button(tr("Visszaállítás", "Restore"), role: .destructive) {
-                guard let url = pendingImport else { return }
+                guard monitor.canManageGarage, let url = pendingImport else { return }
                 do {
                     let rows = try Backup.restore(from: url)
                     monitor.reloadAfterRestore()

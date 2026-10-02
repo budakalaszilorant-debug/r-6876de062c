@@ -25,7 +25,7 @@ struct ServiceStatus: Identifiable {
         return r <= (item.critical ? 3000 : 2000) ? .soon : .ok
     }
     var progress: Double {
-        guard let r = remainingKm else { return 0 }
+        guard let r = remainingKm, item.intervalKm > 0 else { return 0 }
         return min(1, max(0, 1 - r / item.intervalKm))
     }
 }
@@ -51,7 +51,7 @@ enum ServiceStore {
                 return ServiceStatus(item: item, lastKm: nil, lastDate: nil, remainingKm: nil)
             }
             return ServiceStatus(item: item, lastKm: km, lastDate: Date(timeIntervalSince1970: date),
-                                 remainingKm: km + item.intervalKm - odometer)
+                                 remainingKm: item.intervalKm > 0 ? km + item.intervalKm - odometer : nil)
         }
     }
 
@@ -63,6 +63,7 @@ enum ServiceStore {
     }
 
     static func setInterval(_ id: String, km: Double) {
+        guard km.isFinite, km >= 0, km <= 500_000 else { return }
         db.execute("UPDATE service_plan SET interval_km = ? WHERE car_id = ? AND item = ?", [km, CarStore.activeId, id])
     }
 
@@ -86,8 +87,8 @@ enum ServiceStore {
                 if s.item.critical && r >= 0 {
                     NotificationManager.shared.send(
                         key: key, title: "🚨 " + who + tr("KRITIKUS — \(s.item.hu)", "CRITICAL — \(s.item.en)"),
-                        body: tr("\(s.item.hu) csere \(km) km múlva! Ha elszakad, súlyos motorkárt okoz.",
-                                 "\(s.item.en) due in \(km) km! If it fails it can wreck the engine."),
+                        body: tr("\(s.item.hu): \(km) km múlva esedékes. Egyeztess szervizidőpontot.",
+                                 "\(s.item.en): due in \(km) km. Arrange a service appointment."),
                         level: .critical)
                 } else if r < 0 {
                     NotificationManager.shared.send(

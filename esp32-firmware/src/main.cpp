@@ -108,7 +108,8 @@ uint32_t engineStoppedAt = 0;
 
 float rpm = NAN, coolant = NAN, voltage = NAN, speed = NAN, load = NAN,
       throttle = NAN, fuel = NAN, intake = NAN, distSinceClear = NAN, odometer = NAN,
-      maf = NAN;
+      maf = NAN, fuelRate = NAN;
+int fuelTypeCode = -1;
 const char* voltageSrc = "adapter";
 double   tripKm = 0;
 uint32_t lastSpeedAt = 0;
@@ -232,7 +233,7 @@ void readVin() {
   String v = parseVin(elmSend("0902", 3000));
   if (v.length() == 17) {
     vin = v;
-    prefs.putString("vin", vin);
+    // Identity belongs to the current ECU session only.
     Serial.printf("[OBD] VIN: %s\n", vin.c_str());
   }
 }
@@ -266,6 +267,12 @@ void readDtcs() {
 // ───────────── Járműállapot ─────────────
 void clearLiveValues() {
   rpm = speed = load = throttle = fuel = intake = coolant = maf = NAN;
+  vin = "";
+  fuelRate = NAN;
+  fuelTypeCode = -1;
+  odometer = distSinceClear = distMil = timeMil = timeClear = NAN;
+  dtcs.clear();
+  freezeFrame.valid = false;
 }
 
 void markEcuResult(bool ok) {
@@ -277,7 +284,8 @@ void markEcuResult(bool ok) {
       Serial.println("[OBD] ECU online");
       detectProtocol();
       readSupportedPids();
-      if (vin.length() != 17) readVin();
+      vin = "";
+      readVin();
       tDtc = 0;  // azonnal olvassunk hibakódot
     }
   } else if (++ecuFails >= ECU_FAIL_LIMIT && ecuOnline) {
@@ -370,6 +378,7 @@ void pollScheduled(uint32_t now) {
     tMedium = now;
     load     = queryPid(0x04, 1, b) ? b[0] * 100.0f / 255.0f : NAN;
     throttle = queryPid(0x11, 1, b) ? b[0] * 100.0f / 255.0f : NAN;
+    fuelRate = (supported[0x5E] && queryPid(0x5E, 2, b)) ? (b[0] * 256 + b[1]) * 0.05f : NAN;
   }
   if (now - tCoolant >= COOLANT_INTERVAL_MS) {
     tCoolant = now;
@@ -377,6 +386,7 @@ void pollScheduled(uint32_t now) {
   }
   if (now - tSlow >= SLOW_INTERVAL_MS) {
     tSlow = now;
+    if (supported[0x51] && queryPid(0x51, 1, b)) fuelTypeCode = b[0];
     intake = queryPid(0x0F, 1, b) ? b[0] - 40.0f : NAN;
     fuel   = (supported[0x2F] && queryPid(0x2F, 1, b)) ? b[0] * 100.0f / 255.0f : NAN;
   }
@@ -484,6 +494,8 @@ String buildPacket() {
   putNum(doc, "fuel_level", fuel, 0);
   putNum(doc, "intake_temp", intake, 0);
   putNum(doc, "maf", maf, 2);
+  putNum(doc, "fuel_rate", fuelRate, 2);
+  if (fuelTypeCode >= 0) doc["fuel_type"] = fuelTypeCode; else doc["fuel_type"] = nullptr;
   putNum(doc, "rest_v", restV, 2);
   putNum(doc, "crank_min_v", crankMinV, 2);
   putNum(doc, "sleep_v0", sleepV0, 2);
@@ -565,7 +577,7 @@ void setup() {
   delay(200);
 
   prefs.begin("obd", false);
-  vin = prefs.getString("vin", "");
+  vin = "";  // VIN must be read from this vehicle, never from persistent cache.
   startId = prefs.getUInt("start_id", 0);
   savedProto = (char)prefs.getUChar("proto", 0);
 

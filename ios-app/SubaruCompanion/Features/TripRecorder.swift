@@ -90,7 +90,7 @@ enum TripStore {
 
     /// Félbemaradt utak lezárása (pl. az app leállt út közben).
     static func closeStale(except startId: Int?) {
-        let open = db.query("SELECT id, start FROM trips WHERE end_t IS NULL AND start_id IS NOT ?", [startId]) {
+        let open = db.query("SELECT id, start FROM trips WHERE end_t IS NULL AND start_id IS NOT ? AND car_id = ?", [startId, CarStore.activeId]) {
             ($0.int(0), $0.double(1))
         }
         for (id, start) in open {
