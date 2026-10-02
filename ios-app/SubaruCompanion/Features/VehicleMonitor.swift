@@ -166,7 +166,7 @@ final class VehicleMonitor: ObservableObject {
         let t = recorder.active
         return .init(speed: Int(p.vehicleSpeed ?? 0),
                      coolant: p.coolantTemp.map { Int($0) },
-                     warm: (p.coolantTemp ?? 0) >= EJ20.warmTemp,
+                     warm: (p.coolantTemp ?? 0) >= CarSpec.warmTemp,
                      tripKm: ((t?.distanceKm ?? 0) * 10).rounded() / 10,
                      consumption: t?.avgConsumption.map { ($0 * 10).rounded() / 10 })
     }
@@ -291,14 +291,14 @@ final class VehicleMonitor: ObservableObject {
             if p.startId != seenStartId {
                 seenStartId = p.startId
                 coolantSamples.removeAll()
-                let cold = (p.coolantTemp ?? 99) < EJ20.coldStartTemp
+                let cold = (p.coolantTemp ?? 99) < CarSpec.coldStartTemp
                 warmUp = WarmUpState(coldStart: cold, startTemp: p.coolantTemp)
                 if cold, let t = p.coolantTemp {
                     db.execute("INSERT INTO events(t, kind, value) VALUES(?,?,?)",
                                [now.timeIntervalSince1970, "cold_start", t])
                 }
                 // Már melegen indult: nem kell értesítés erre a ciklusra.
-                if (p.coolantTemp ?? 0) >= EJ20.warmTemp { warmNotifiedStartId = p.startId }
+                if (p.coolantTemp ?? 0) >= CarSpec.warmTemp { warmNotifiedStartId = p.startId }
                 pendingHealth = (p.startId, now)
             }
             if recorder.active == nil {
@@ -417,18 +417,18 @@ final class VehicleMonitor: ObservableObject {
             coolantSamples.removeAll { now.timeIntervalSince($0.t) > 150 }
         }
 
-        let warm = c >= EJ20.warmTemp
+        let warm = c >= CarSpec.warmTemp
         var eta: Double?
         if !warm, let first = coolantSamples.first, now.timeIntervalSince(first.t) >= 30 {
             let rate = (c - first.temp) / now.timeIntervalSince(first.t) * 60  // °C / perc
-            if rate > 0.3 { eta = (EJ20.warmTemp - c) / rate }
+            if rate > 0.3 { eta = (CarSpec.warmTemp - c) / rate }
         }
         if warmUp.isWarm != warm { warmUp.isWarm = warm }
         if warmUp.etaMinutes.map({ Int($0 * 2) }) != eta.map({ Int($0 * 2) }) { warmUp.etaMinutes = eta }
 
         if warm, warmNotifiedStartId != p.startId {
             warmNotifiedStartId = p.startId   // indítási ciklusonként egyszer
-            notify.send(key: "warm", title: "Subaru Impreza",
+            notify.send(key: "warm", title: settings.carName,
                         body: tr("Motor felmelegedett ✓ (\(Int(c))°C)", "Engine warmed up ✓ (\(Int(c))°C)"))
             Haptics.success()
         }
@@ -514,7 +514,7 @@ final class VehicleMonitor: ObservableObject {
                        engineRunning: p.engineRunning, updated: now).save()
 
         let level = Self.level(for: p.batteryVoltage, running: p.engineRunning)
-        let warm = (p.coolantTemp ?? 0) >= EJ20.warmTemp
+        let warm = (p.coolantTemp ?? 0) >= CarSpec.warmTemp
         let state = "\(p.engineRunning)-\(level)-\(warm)"
         if state != lastWidgetState || now.timeIntervalSince(lastWidgetReload) >= 900 {
             lastWidgetState = state

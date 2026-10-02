@@ -33,6 +33,11 @@ struct VehiclePacket: Equatable {
     var sleepH: Double?
     /// A hibakód keletkezésekor az ECU által rögzített adatok
     var freeze: FreezeFrame?
+    /// Készenléti tesztek nyers bájtjai (Mode 01 PID 01) és a hibatörlés óta eltelt idő/táv
+    var mon: [Int]?
+    var distMilKm: Double?
+    var timeMilMin: Double?
+    var timeClearMin: Double?
 
     struct FreezeFrame: Decodable, Equatable {
         var dtc: String?
@@ -62,6 +67,10 @@ struct VehiclePacket: Equatable {
         case restV = "rest_v"
         case crankMinV = "crank_min_v"
         case sleepV0 = "sleep_v0"
+        case mon
+        case distMilKm = "dist_mil_km"
+        case timeMilMin = "time_mil_min"
+        case timeClearMin = "time_clear_min"
         case sleepH = "sleep_h"
     }
 
@@ -110,21 +119,19 @@ extension VehiclePacket: Decodable {
         sleepV0 = opt(.sleepV0)
         sleepH = opt(.sleepH)
         freeze = opt(.freeze)
+        mon = opt(.mon)
+        distMilKm = opt(.distMilKm)
+        timeMilMin = opt(.timeMilMin)
+        timeClearMin = opt(.timeClearMin)
     }
 }
 
-/// EJ20 motorra és a 2010-es Imprezára vonatkozó fix értékek.
-enum EJ20 {
-    static let warmTemp: Double = 88
-    static let fullWarmTemp: Double = 90
+/// Az autó jellemzői. Az értékek a Beállításokban autónként átírhatók.
+enum CarSpec {
+    static var warmTemp: Double { AppSettings.shared.warmTemp }
+    static var fullWarmTemp: Double { AppSettings.shared.warmTemp + 2 }
     static let coldStartTemp: Double = 25
-    static let redline: Double = 6500
+    static var redline: Double { AppSettings.shared.redline }
     static let idleRpm: Double = 700
 
-    /// VIN alapján: JF1 = Subaru Japán, 4-5. karakter GH/GR/GE = Impreza (GH/GR generáció).
-    static func isSupported(vin: String) -> Bool {
-        guard vin.count == 17, vin.hasPrefix("JF1") || vin.hasPrefix("JF2") else { return false }
-        let model = String(vin.dropFirst(3).prefix(2))
-        return ["GH", "GR", "GE", "GV"].contains(model)
-    }
 }

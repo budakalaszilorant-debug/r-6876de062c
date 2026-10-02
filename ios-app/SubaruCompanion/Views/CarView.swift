@@ -35,7 +35,7 @@ struct WarmUpView: View {
     var body: some View {
         let p = monitor.isLive ? monitor.packet : nil
         let temp = p?.coolantTemp
-        let warm = (temp ?? 0) >= EJ20.warmTemp
+        let warm = (temp ?? 0) >= CarSpec.warmTemp
         let running = p?.engineRunning ?? false
 
         ScrollView {
@@ -43,7 +43,7 @@ struct WarmUpView: View {
                 Card {
                     VStack(spacing: 14) {
                         ZStack {
-                            ArcGauge(value: temp, range: 0...EJ20.fullWarmTemp,
+                            ArcGauge(value: temp, range: 0...CarSpec.fullWarmTemp,
                                      tint: warm ? Theme.ok : Theme.accent, lineWidth: 16)
                             VStack(spacing: 2) {
                                 HStack(alignment: .firstTextBaseline, spacing: 2) {
@@ -53,7 +53,7 @@ struct WarmUpView: View {
                                         .contentTransition(.numericText())
                                     Text("°C").font(.system(size: 20, weight: .medium)).foregroundStyle(Theme.text2)
                                 }
-                                Text("/ \(Int(EJ20.fullWarmTemp))°C")
+                                Text("/ \(Int(CarSpec.fullWarmTemp))°C")
                                     .font(.system(size: 14, weight: .medium))
                                     .foregroundStyle(Theme.text3)
                             }
@@ -359,10 +359,31 @@ struct ServiceDoneSheet: View {
 struct DiagnosticsView: View {
     @EnvironmentObject var monitor: VehicleMonitor
     @State private var history: [DTCRecord] = []
+    @State private var showCheck = UserDefaults.standard.bool(forKey: "uiHealth")  // képernyőképekhez
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                Button { showCheck = true } label: {
+                    Card {
+                        HStack(spacing: 12) {
+                            Image(systemName: "stethoscope")
+                                .font(.system(size: 22))
+                                .foregroundStyle(Theme.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(tr("Átvilágítás", "Health check")).font(.system(size: 16, weight: .semibold))
+                                Text(tr("Vásárlás, műszaki vagy szerelő előtt", "Before buying, inspection or the mechanic"))
+                                    .font(.system(size: 13)).foregroundStyle(Theme.text2)
+                            }
+                            .foregroundStyle(Theme.text)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Theme.text3)
+                        }
+                    }
+                }
+                .buttonStyle(PressableStyle())
+
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: tr("Aktív hibakódok", "Active fault codes"))
                     FaultCodesCard(codes: monitor.packet?.faultCodes ?? [], known: monitor.packet != nil)
@@ -397,6 +418,7 @@ struct DiagnosticsView: View {
             }
             .padding(16)
         }
+        .sheet(isPresented: $showCheck) { HealthCheckView() }
         .onAppear { history = DTC.history() }
         .onChange(of: monitor.dataVersion) { _ in history = DTC.history() }
     }

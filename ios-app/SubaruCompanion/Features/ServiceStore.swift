@@ -31,7 +31,7 @@ struct ServiceStatus: Identifiable {
 }
 
 enum ServiceStore {
-    /// EJ20 2.0 boxer szervizterv
+    /// CarSpec 2.0 boxer szervizterv
     static let items: [ServiceItem] = [
         .init(id: "oil", hu: "Motorolaj", en: "Engine oil", intervalKm: 10_000),
         .init(id: "oil_filter", hu: "Olajszűrő", en: "Oil filter", intervalKm: 10_000),

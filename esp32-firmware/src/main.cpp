@@ -29,7 +29,7 @@
 #include "obd_parse.h"
 
 // ───────────── Konfiguráció ─────────────
-#define DEVICE_NAME          "SUBARU-OBD"
+#define DEVICE_NAME          "CAR-OBD"
 #define SERVICE_UUID         "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define LIVE_CHAR_UUID       "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
@@ -122,6 +122,11 @@ struct FreezeFrame {
 } freezeFrame;
 
 uint32_t seq = 0;
+// Átvilágítás: MIL lámpa, készenléti tesztek, hibatörlés óta eltelt idő/táv (mind Mode 01 olvasás)
+uint8_t  monitors[4] = {0};
+bool     monitorsValid = false;
+float    distMil = NAN, timeMil = NAN, timeClear = NAN;
+
 uint32_t tPacket = 0, tCoolant = 0, tVoltage = 0, tSlow = 0, tDtc = 0, tDist = 0, tProbe = 0, tVin = 0, tMedium = 0;
 
 uint32_t probeTimeout();
@@ -278,6 +283,7 @@ void markEcuResult(bool ok) {
   } else if (++ecuFails >= ECU_FAIL_LIMIT && ecuOnline) {
     ecuOnline = false;
     clearLiveValues();
+    monitorsValid = false;
     Serial.println("[OBD] ECU offline");
   }
 }
@@ -377,6 +383,10 @@ void pollScheduled(uint32_t now) {
   if (now - tDist >= DIST_INTERVAL_MS) {
     tDist = now;
     if (supported[0x31] && queryPid(0x31, 2, b)) distSinceClear = b[0] * 256 + b[1];
+    if (queryPid(0x01, 4, b)) { memcpy(monitors, b, 4); monitorsValid = true; }
+    if (supported[0x21] && queryPid(0x21, 2, b)) distMil = b[0] * 256 + b[1];
+    if (supported[0x4D] && queryPid(0x4D, 2, b)) timeMil = b[0] * 256 + b[1];
+    if (supported[0x4E] && queryPid(0x4E, 2, b)) timeClear = b[0] * 256 + b[1];
     if (supported[0xA6] && queryPid(0xA6, 4, b)) {
       odometer = ((uint32_t)b[0] << 24 | (uint32_t)b[1] << 16 | (uint32_t)b[2] << 8 | b[3]) / 10.0f;
     }
@@ -491,6 +501,13 @@ String buildPacket() {
   if (vin.length() == 17) doc["vin"] = vin; else doc["vin"] = nullptr;
   putNum(doc, "odometer_km", odometer, 1);
   putNum(doc, "dist_since_clear_km", distSinceClear, 0);
+  putNum(doc, "dist_mil_km", distMil, 0);
+  putNum(doc, "time_mil_min", timeMil, 0);
+  putNum(doc, "time_clear_min", timeClear, 0);
+  if (monitorsValid) {
+    JsonArray m = doc["mon"].to<JsonArray>();
+    for (int i = 0; i < 4; i++) m.add(monitors[i]);
+  }
   doc["trip_km"] = round(tripKm * 100) / 100.0;
 
   String out;

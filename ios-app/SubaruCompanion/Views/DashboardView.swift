@@ -130,13 +130,13 @@ struct DashboardView: View {
     private func coolantTint(_ c: Double?) -> Color {
         guard let c else { return Theme.text3 }
         if c >= 105 { return Theme.bad }
-        return c >= EJ20.warmTemp ? Theme.ok : Theme.accent
+        return c >= CarSpec.warmTemp ? Theme.ok : Theme.accent
     }
 
     private func coolantStatus(_ c: Double?) -> String {
         guard let c else { return "—" }
         if c >= 105 { return tr("Túl meleg", "Too hot") }
-        if c >= EJ20.warmTemp { return tr("Üzemi hőfok", "Warmed up") }
+        if c >= CarSpec.warmTemp { return tr("Üzemi hőfok", "Warmed up") }
         return c < 40 ? tr("Hideg", "Cold") : tr("Melegszik", "Warming up")
     }
 }
@@ -150,7 +150,7 @@ struct RpmDial: View {
     private let line: CGFloat = 14
 
     private var fraction: Double { min(1, max(0, (rpm ?? 0) / maxRpm)) }
-    private var tint: Color { (rpm ?? 0) >= EJ20.redline - 500 ? Theme.bad : Theme.accent }
+    private var tint: Color { (rpm ?? 0) >= CarSpec.redline - 500 ? Theme.bad : Theme.accent }
 
     var body: some View {
         GeometryReader { geo in
@@ -159,7 +159,7 @@ struct RpmDial: View {
 
             ZStack {
                 arc(from: 0, to: 1, color: Theme.surface2)
-                arc(from: EJ20.redline / maxRpm, to: 1, color: Theme.bad.opacity(0.45))
+                arc(from: CarSpec.redline / maxRpm, to: 1, color: Theme.bad.opacity(0.45))
                 arc(from: 0, to: fraction, color: tint)
                     .animation(Theme.spring, value: rpm)
 
@@ -374,7 +374,7 @@ struct LandscapeDashboard: View {
 
         HStack(spacing: 24) {
             gauge(value: p?.rpm, range: 0...7000, text: Fmt.int(p?.rpm), unit: tr("ford/p", "rpm"),
-                  tint: (p?.rpm ?? 0) > EJ20.redline - 500 ? Theme.bad : Theme.accent)
+                  tint: (p?.rpm ?? 0) > CarSpec.redline - 500 ? Theme.bad : Theme.accent)
 
             VStack(spacing: 14) {
                 mini(tr("Hűtővíz", "Coolant"), Fmt.int(p?.coolantTemp), "°C")

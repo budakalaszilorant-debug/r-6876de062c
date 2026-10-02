@@ -80,7 +80,10 @@ struct ConnectionBar: View {
     private var text: String {
         if monitor.demoActive { return tr("Demo mód — szimulált adatok", "Demo mode — simulated data") }
         if adapterFault { return tr("Az OBD adapter nem válaszol", "OBD adapter not responding") }
-        if connected { return tr("Csatlakozva — Subaru Impreza RS", "Connected — Subaru Impreza RS") }
+        if connected {
+            let name = AppSettings.shared.carName
+            return tr("Csatlakozva — \(name)", "Connected — \(name)")
+        }
         switch ble.state {
         case .off: return tr("Bluetooth kikapcsolva", "Bluetooth is off")
         case .unauthorized: return tr("Bluetooth engedély hiányzik", "Bluetooth permission missing")

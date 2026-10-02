@@ -197,7 +197,7 @@ struct ParkingCard: View {
                             .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(Theme.text2)
                         PrimaryButton(title: tr("Vezess az autóhoz", "Walk me to the car"), icon: "figure.walk") {
-                            MapsLauncher.walk(to: spot.coordinate, name: "Subaru Impreza")
+                            MapsLauncher.walk(to: spot.coordinate, name: AppSettings.shared.carName)
                         }
                     }
                     .padding(16)

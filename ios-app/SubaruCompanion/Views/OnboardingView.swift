@@ -20,7 +20,7 @@ struct OnboardingView: View {
                 .foregroundStyle(Theme.accent)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Subaru Impreza RS")
+                Text(settings.carName)
                     .font(.system(size: 34, weight: .bold))
                     .tracking(-0.6)
                 Text(tr("Add meg a km óra állását.", "Enter the odometer reading."))

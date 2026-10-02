@@ -151,7 +151,7 @@ struct MonthlySummary {
 
 enum RangeEstimator {
     /// Impreza (GH/GR) tank térfogata
-    static let tankLiters = 60.0
+    static var tankLiters: Double { max(10, AppSettings.shared.tankLiters) }
     /// Ha még nincs saját adat, ezzel az átlaggal számol.
     static let fallbackL100 = 8.5
 

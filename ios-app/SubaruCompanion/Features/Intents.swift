@@ -70,7 +70,7 @@ struct WhereIsCarIntent: AppIntent {
             let none = tr("Még nincs mentett parkolóhely.", "No saved parking spot yet.")
             return .result(dialog: "\(none)")
         }
-        MapsLauncher.walk(to: spot.coordinate, name: "Subaru Impreza")
+        MapsLauncher.walk(to: spot.coordinate, name: AppSettings.shared.carName)
         let text = tr("Leparkolva: \(Fmt.date(spot.date)).", "Parked: \(Fmt.date(spot.date)).")
         return .result(dialog: "\(text)")
     }

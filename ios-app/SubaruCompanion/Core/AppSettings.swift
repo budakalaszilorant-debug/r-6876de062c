@@ -41,6 +41,12 @@ final class AppSettings: ObservableObject {
 
     @Published var vin: String? { didSet { d.set(vin, forKey: "vin") } }
 
+    // Az autó adatai (a Beállításokban szerkeszthetők)
+    @Published var carName = "Subaru Impreza RS" { didSet { d.set(carName, forKey: "carName") } }
+    @Published var tankLiters = 60.0 { didSet { d.set(tankLiters, forKey: "tankLiters") } }
+    @Published var warmTemp = 88.0 { didSet { d.set(warmTemp, forKey: "warmTemp") } }
+    @Published var redline = 6500.0 { didSet { d.set(redline, forKey: "redline") } }
+
     // Kapcsolható funkciók
     @Published var featParkingTimer = true { didSet { d.set(featParkingTimer, forKey: "featParkingTimer") } }
     @Published var featLeftRunning = true { didSet { d.set(featLeftRunning, forKey: "featLeftRunning") } }
@@ -69,13 +75,14 @@ final class AppSettings: ObservableObject {
 
     /// Mentésbe kerülő beállítás kulcsok
     static let backupKeys = [
-        "lang", "fuelPrice", "odo", "odoSet", "vin", "onboarded", "dashOrder", "dashHidden",
+        "carName", "tankLiters", "warmTemp", "redline", "lang", "fuelPrice", "odo", "odoSet", "vin", "onboarded", "dashOrder", "dashHidden",
         "featParkingTimer", "featLeftRunning", "featMonthly", "featRange", "featBatteryHealth", "featIdle",
         "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featDrain", "featTripCost"
     ]
 
     private init() {
         d.register(defaults: [
+            "carName": "Subaru Impreza RS", "tankLiters": 60.0, "warmTemp": 88.0, "redline": 6500.0,
             "lang": "hu", "fuelPrice": 620.0, "odo": 0.0, "odoSet": false,
             "featParkingTimer": true, "featLeftRunning": true, "featMonthly": true,
             "featRange": true, "featBatteryHealth": true, "featIdle": true,
@@ -92,6 +99,10 @@ final class AppSettings: ObservableObject {
         odometerKm = d.double(forKey: "odo")
         odometerSet = d.bool(forKey: "odoSet")
         vin = d.string(forKey: "vin")
+        carName = d.string(forKey: "carName") ?? "Subaru Impreza RS"
+        tankLiters = d.double(forKey: "tankLiters")
+        warmTemp = d.double(forKey: "warmTemp")
+        redline = d.double(forKey: "redline")
         onboarded = d.bool(forKey: "onboarded")
         featParkingTimer = d.bool(forKey: "featParkingTimer")
         featLeftRunning = d.bool(forKey: "featLeftRunning")
