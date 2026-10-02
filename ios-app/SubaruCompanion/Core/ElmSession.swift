@@ -2,8 +2,7 @@ import Foundation
 import CoreBluetooth
 
 /// Közvetlen kapcsolat egy bolti Bluetooth LE OBD dugóval (ELM327 kompatibilis, pl. Vgate iCar Pro BLE).
-/// Ugyanazt csinálja, mint az ESP32 firmware: sorban lekérdezi az autót, és `VehiclePacket`-et ad ki,
-/// így az app többi része nem tudja, melyik eszköz van csatlakoztatva.
+/// Sorban lekérdezi az autót, és `VehiclePacket`-et ad ki az app többi részének.
 ///
 /// Csak olvas: minden parancs átmegy az `Elm.isAllowed` szűrőn, a tiltott parancs ki sem megy.
 /// Minden hívás a főszálon történik (a CoreBluetooth is a főszálon hív vissza).
@@ -47,7 +46,7 @@ final class ElmSession {
     private var dropNextPrompt = false
     private let started = Date()
 
-    // Időzítés (mint a firmware-ben)
+    // Időzítés
     private var tCycle = Date.distantPast
     private var tVoltage = Date.distantPast, tMedium = Date.distantPast, tCoolant = Date.distantPast
     private var tSlow = Date.distantPast, tDist = Date.distantPast, tDtc = Date.distantPast

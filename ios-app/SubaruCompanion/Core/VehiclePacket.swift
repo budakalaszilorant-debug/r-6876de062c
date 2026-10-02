@@ -1,10 +1,10 @@
 import Foundation
 
-/// Az ESP32 által küldött JSON csomag (4 Hz).
+/// Az autó pillanatnyi állapota, amit az `ElmSession` a dugó válaszaiból állít össze (kb. 4 Hz).
 struct VehiclePacket: Equatable {
     var seq: Int = 0
     var uptimeMs: Int = 0
-    /// Válaszol-e az ELM327 adapter az ESP32-nek (nil = régi firmware, nem küldi)
+    /// Válaszol-e a dugó (ELM327) az appnak
     var elm: Bool?
     var ecu: Bool = false
     var engineRunning: Bool = false
@@ -34,9 +34,6 @@ struct VehiclePacket: Equatable {
     var restV: Double?
     /// Legalacsonyabb feszültség önindítózás közben (csak ha a modul ébren volt)
     var crankMinV: Double?
-    /// Feszültség 1 órával a leállítás után, és hány órát állt az autó (rejtett fogyasztó figyeléshez)
-    var sleepV0: Double?
-    var sleepH: Double?
     /// A hibakód keletkezésekor az ECU által rögzített adatok
     var freeze: FreezeFrame?
     /// Készenléti tesztek nyers bájtjai (Mode 01 PID 01) és a hibatörlés óta eltelt idő/táv
@@ -78,12 +75,10 @@ struct VehiclePacket: Equatable {
         case tripKm = "trip_km"
         case restV = "rest_v"
         case crankMinV = "crank_min_v"
-        case sleepV0 = "sleep_v0"
         case mon
         case distMilKm = "dist_mil_km"
         case timeMilMin = "time_mil_min"
         case timeClearMin = "time_clear_min"
-        case sleepH = "sleep_h"
         case fuelType = "fuel_type"
         case fuelRate = "fuel_rate"
     }
@@ -105,7 +100,7 @@ struct VehiclePacket: Equatable {
     }
 }
 
-/// Hiányzó mezőnél alapértéket használ, hogy egy firmware-változás ne némítsa el az egész appot.
+/// JSON-ból is betölthető (tesztekhez); a hiányzó mezők alapértéket kapnak.
 extension VehiclePacket: Decodable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -138,8 +133,6 @@ extension VehiclePacket: Decodable {
         tripKm = opt(.tripKm)
         restV = opt(.restV)
         crankMinV = opt(.crankMinV)
-        sleepV0 = opt(.sleepV0)
-        sleepH = opt(.sleepH)
         freeze = opt(.freeze)
         mon = opt(.mon)
         distMilKm = opt(.distMilKm)

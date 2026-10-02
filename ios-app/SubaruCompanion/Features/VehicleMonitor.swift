@@ -498,15 +498,6 @@ final class VehicleMonitor: ObservableObject {
                                  crank: p.crankMinV, charge: p.batteryVoltage)
         }
 
-        // Rejtett fogyasztó: legalább 6 óra állás alatt 0,3 V-nál nagyobb esés.
-        if settings.featDrain, let v0 = p.sleepV0, let rest = p.restV, let hours = p.sleepH,
-           hours >= 6, v0 - rest >= 0.3 {
-            notify.send(key: "drain", title: tr("🔋 Valami meríti az akkut", "🔋 Something is draining the battery"),
-                        body: tr("Állás közben \(String(format: "%.1f", v0 - rest)) V-ot esett \(Int(hours)) óra alatt.",
-                                 "It dropped \(String(format: "%.1f", v0 - rest)) V over \(Int(hours)) hours while parked."),
-                        level: .timeSensitive)
-        }
-
         // Tankolás észlelése: a tankszint legalább 8 %-kal nőtt a leállítás óta.
         if settings.featAutoFill, let level = p.fuelLevel, lastStopFuel >= 0, level - lastStopFuel >= 8 {
             let liters = ((level - lastStopFuel) / 100 * RangeEstimator.tankLiters).rounded()

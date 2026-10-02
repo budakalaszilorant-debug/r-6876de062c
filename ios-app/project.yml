@@ -49,7 +49,7 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         BGTaskSchedulerPermittedIdentifiers: [hu.kocsi.subaru.servicecheck]
-        NSBluetoothAlwaysUsageDescription: "Az app Bluetooth-on olvassa az autó adatait az ESP32 modulról."
+        NSBluetoothAlwaysUsageDescription: "Az app Bluetooth-on olvassa az autó adatait az OBD dugóról."
         NSLocationWhenInUseUsageDescription: "Az utak rögzítéséhez és a parkolási hely mentéséhez."
         NSLocationAlwaysAndWhenInUseUsageDescription: "Az utak háttérben is rögzülnek, és a parkolási hely leállításkor mentődik."
         NSMotionUsageDescription: "A G-erő mérőhöz a telefon gyorsulásmérőjét használjuk."

@@ -2,15 +2,11 @@ import Foundation
 import CoreBluetooth
 import Combine
 
-/// Bluetooth LE kapcsolat az autóval. Kétféle eszközt kezel:
-/// - saját ESP32 modul: kész JSON csomagokat küld, az app csak feliratkozik rá;
-/// - bolti BLE OBD dugó (ELM327, pl. Vgate iCar Pro BLE): az app maga kérdezi le az autót (`ElmSession`).
-/// Mindkét esetben csak olvasás történik.
+/// Bluetooth LE kapcsolat egy bolti OBD dugóval (ELM327 kompatibilis, pl. Vgate iCar Pro BLE).
+/// Az app maga kérdezi le az autót (`ElmSession`), kizárólag olvasó parancsokkal.
 final class BLEManager: NSObject, ObservableObject {
     static let shared = BLEManager()
 
-    static let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
-    static let liveUUID    = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
     /// Bolti dugók gyakori soros szolgáltatásai (Vgate / Veepeak: FFF0, sok klón: FFE0, OBDLink / LELink: 18F0 és saját)
     static let dongleServices = [
         CBUUID(string: "FFF0"), CBUUID(string: "FFE0"), CBUUID(string: "18F0"),
@@ -22,20 +18,15 @@ final class BLEManager: NSObject, ObservableObject {
     private static let savedPeripheralKey = "blePeripheral"
 
     enum State: Equatable { case off, unauthorized, scanning, connecting, connected }
-    enum Device: Equatable { case esp32, dongle }
 
     @Published private(set) var state: State = .off
-    @Published private(set) var device: Device?
     @Published private(set) var deviceName: String?
     let packets = PassthroughSubject<VehiclePacket, Never>()
-    /// Diagnosztika: hány csomag jött, és hányat nem sikerült értelmezni
+    /// Diagnosztika: hány adatcsomag készült a dugó válaszaiból
     private(set) var receivedCount = 0
-    private(set) var failedCount = 0
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
-    private var buffer = Data()
-    private let decoder = JSONDecoder()
     private var session: ElmSession?
     private var dongleNotify: CBCharacteristic?
     private var dongleWrite: CBCharacteristic?
@@ -86,7 +77,6 @@ final class BLEManager: NSObject, ObservableObject {
 
     private func isCandidate(_ p: CBPeripheral, _ adv: [String: Any]) -> Bool {
         let services = (adv[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
-        if services.contains(Self.serviceUUID) { return true }
         if services.contains(where: { Self.dongleServices.contains($0) }) { return true }
         let name = ((adv[CBAdvertisementDataLocalNameKey] as? String) ?? p.name ?? "").uppercased()
         return Self.dongleNames.contains { name.contains($0) }
@@ -97,32 +87,12 @@ final class BLEManager: NSObject, ObservableObject {
         session = nil
         dongleNotify = nil
         dongleWrite = nil
-        device = nil
-        buffer.removeAll()
     }
 
-    private func handle(chunk: Data) {
-        buffer.append(chunk)
-        // Csomagvég: '\n'
-        while let nl = buffer.firstIndex(of: 0x0A) {
-            let line = buffer[buffer.startIndex..<nl]
-            buffer.removeSubrange(buffer.startIndex...nl)
-            guard !line.isEmpty else { continue }
-            if let packet = try? decoder.decode(VehiclePacket.self, from: Data(line)) {
-                receivedCount += 1
-                packets.send(packet)
-            } else {
-                failedCount += 1
-            }
-        }
-        if buffer.count > 4096 { buffer.removeAll() }  // sérült adatfolyam
-    }
-
-    /// Dugó: ha megvan az írható és az értesítő karakterisztika, indul a lekérdezés.
+    /// Ha megvan az írható és az értesítő karakterisztika, indul a lekérdezés.
     private func startDongleIfReady(_ p: CBPeripheral) {
         guard session == nil, let write = dongleWrite, let notify = dongleNotify else { return }
         p.setNotifyValue(true, for: notify)
-        device = .dongle
         state = .connected
         UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.savedPeripheralKey)
         let s = ElmSession(peripheral: p, write: write) { [weak self] packet in
@@ -189,12 +159,7 @@ extension BLEManager: CBCentralManagerDelegate {
 extension BLEManager: CBPeripheralDelegate {
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
         let services = p.services ?? []
-        // Saját ESP32 modul
-        if let esp = services.first(where: { $0.uuid == Self.serviceUUID }) {
-            p.discoverCharacteristics([Self.liveUUID], for: esp)
-            return
-        }
-        // Bolti dugó: az ismert soros szolgáltatások előre, de minden szolgáltatást megnézünk
+        // Az ismert soros szolgáltatások előre, de minden szolgáltatást megnézünk
         let ordered = services.filter { Self.dongleServices.contains($0.uuid) }
             + services.filter { !Self.dongleServices.contains($0.uuid) }
         pendingServiceScans = ordered.count
@@ -204,15 +169,6 @@ extension BLEManager: CBPeripheralDelegate {
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         let chars = service.characteristics ?? []
-        if service.uuid == Self.serviceUUID {
-            guard let ch = chars.first(where: { $0.uuid == Self.liveUUID }) else { return }
-            p.setNotifyValue(true, for: ch)
-            UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.savedPeripheralKey)
-            device = .esp32
-            state = .connected
-            return
-        }
-
         pendingServiceScans -= 1
         // Ugyanabban a szolgáltatásban keresünk egy értesítő és egy írható karakterisztikát.
         if dongleNotify == nil || dongleWrite == nil {
@@ -225,7 +181,7 @@ extension BLEManager: CBPeripheralDelegate {
         }
         startDongleIfReady(p)
         // Egyik szolgáltatás sem jó: nem OBD dugó, keresünk tovább.
-        if pendingServiceScans <= 0, session == nil, device == nil { reject(p) }
+        if pendingServiceScans <= 0, session == nil { reject(p) }
     }
 
     private func reject(_ p: CBPeripheral) {
@@ -236,10 +192,6 @@ extension BLEManager: CBPeripheralDelegate {
 
     func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {
         guard let data = ch.value else { return }
-        if device == .dongle {
-            session?.receive(data)
-        } else {
-            handle(chunk: data)
-        }
+        session?.receive(data)
     }
 }

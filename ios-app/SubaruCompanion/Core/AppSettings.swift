@@ -60,7 +60,6 @@ final class AppSettings: ObservableObject {
     @Published var featAutoFill = true { didSet { d.set(featAutoFill, forKey: "featAutoFill") } }
     @Published var featOverheatEarly = true { didSet { d.set(featOverheatEarly, forKey: "featOverheatEarly") } }
     @Published var featAlternator = true { didSet { d.set(featAlternator, forKey: "featAlternator") } }
-    @Published var featDrain = true { didSet { d.set(featDrain, forKey: "featDrain") } }
     @Published var featTripCost = true { didSet { d.set(featTripCost, forKey: "featTripCost") } }
     /// Több autónál induláskor megkérdezi, melyikkel mész
     @Published var askCarOnLaunch = true { didSet { d.set(askCarOnLaunch, forKey: "askCarOnLaunch") } }
@@ -81,7 +80,7 @@ final class AppSettings: ObservableObject {
     static let backupKeys = [
         "activeCarId", "lang", "fuelPrice", "onboarded", "dashOrder", "dashHidden",
         "featParkingTimer", "featLeftRunning", "featMonthly", "featRange", "featBatteryHealth", "featIdle",
-        "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featDrain", "featTripCost", "askCarOnLaunch"
+        "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featTripCost", "askCarOnLaunch"
     ]
 
     private init() {
@@ -90,7 +89,7 @@ final class AppSettings: ObservableObject {
             "featParkingTimer": true, "featLeftRunning": true, "featMonthly": true,
             "featRange": true, "featBatteryHealth": true, "featIdle": true,
             "featLiveActivity": true, "featAutoFill": true, "featOverheatEarly": true,
-            "featAlternator": true, "featDrain": true, "featTripCost": true, "askCarOnLaunch": true
+            "featAlternator": true, "featTripCost": true, "askCarOnLaunch": true
         ])
         load()
     }
@@ -110,7 +109,6 @@ final class AppSettings: ObservableObject {
         featAutoFill = d.bool(forKey: "featAutoFill")
         featOverheatEarly = d.bool(forKey: "featOverheatEarly")
         featAlternator = d.bool(forKey: "featAlternator")
-        featDrain = d.bool(forKey: "featDrain")
         featTripCost = d.bool(forKey: "featTripCost")
         askCarOnLaunch = d.bool(forKey: "askCarOnLaunch")
 

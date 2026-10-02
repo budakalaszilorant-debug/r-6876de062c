@@ -1,7 +1,6 @@
 import Foundation
 
 /// ELM327 parancs-szűrő és válasz-értelmező a közvetlenül csatlakoztatott OBD dugóhoz.
-/// Az ESP32 firmware `obd_parse.h` fájljának Swift megfelelője, ugyanazokkal a szabályokkal.
 /// Feltételezés: ATE0 (nincs echo), ATL0, ATS0 (nincs szóköz), ATH0 (nincs fejléc).
 enum Elm {
     // MARK: Biztonsági whitelist: csak olvasó parancsok mehetnek ki

@@ -1,5 +1,4 @@
-// A dugós (közvetlen ELM327) mód értelmezőjének tesztjei, ugyanazokkal az esetekkel,
-// mint az ESP32 firmware tesztjei (esp32-firmware/test/host/test_parse.cpp).
+// Az OBD dugó (ELM327) válasz-értelmezőjének és csak-olvasás szűrőjének tesztjei.
 import Foundation
 
 var failed = 0, passed = 0

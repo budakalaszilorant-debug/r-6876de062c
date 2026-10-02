@@ -1,7 +1,7 @@
 import Foundation
 
 /// Szimulált autó az app kipróbálásához hardver nélkül: hidegindítás, bemelegedés (gyorsítva),
-/// városi menet, majd egy hibakód. Ugyanazt a csomagot adja, mint az ESP32.
+/// városi menet, majd egy hibakód. Ugyanazt a csomagot adja, mint a dugó.
 final class DemoSource {
     static let startTemp: Double = 14
 

@@ -79,7 +79,6 @@ struct SettingsView: View {
                 Section(tr("Diagnosztika", "Diagnostics")) {
                     row(tr("Eszköz", "Device"), deviceText)
                     row(tr("Fogadott csomagok", "Packets received"), "\(ble.receivedCount)")
-                    row(tr("Hibás csomagok", "Bad packets"), "\(ble.failedCount)")
                     row(tr("OBD adapter", "OBD adapter"), adapterText)
                     row(tr("Motorvezérlő", "ECU"), ecuText)
                     Button(tr("Eszköz elfelejtése, új keresése", "Forget device and search again")) { ble.forgetDevice() }
@@ -103,11 +102,7 @@ struct SettingsView: View {
 
     private var deviceText: String {
         let name = ble.deviceName.map { " (\($0))" } ?? ""
-        switch ble.device {
-        case .esp32: return tr("ESP32 modul", "ESP32 module") + name
-        case .dongle: return tr("OBD dugó", "OBD dongle") + name
-        case .none: return "—"
-        }
+        return ble.state == .connected ? tr("OBD dugó", "OBD dongle") + name : "—"
     }
 
     private var adapterText: String {

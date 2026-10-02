@@ -329,7 +329,6 @@ struct FeatureToggles: View {
             toggle(tr("Élő tevékenység a zárolási képernyőn", "Lock screen live activity"), "lock.iphone", $settings.featLiveActivity)
             toggle(tr("Korai túlmelegedés jelzés", "Early overheat warning"), "thermometer.high", $settings.featOverheatEarly)
             toggle(tr("Generátor figyelő", "Alternator monitor"), "bolt.badge.clock", $settings.featAlternator)
-            toggle(tr("Rejtett fogyasztó figyelő", "Parasitic drain monitor"), "battery.25", $settings.featDrain)
         }
     }
 

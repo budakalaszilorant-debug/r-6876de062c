@@ -1,4 +1,4 @@
-# Mac nélküli ellenőrzés: a GitHub felhős gépein lefordítja a firmware-t és az iOS appot.
+# Mac nélküli ellenőrzés: a GitHub felhős gépein teszteli és lefordítja az iOS appot.
 # Az iOS build aláírás nélkül, szimulátorra megy: csak azt mutatja meg, hogy a kód lefordul-e.
 name: build
 on:
@@ -6,20 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  firmware:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Értelmező tesztek
-        run: sh esp32-firmware/test/host/run.sh
-      - name: Firmware fordítás
-        run: |
-          pip install platformio
-          cd esp32-firmware && pio run
-
   ios:
     runs-on: macos-15
     steps:

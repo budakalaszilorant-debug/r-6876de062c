@@ -75,7 +75,7 @@ struct ConnectionBar: View {
 
     private var connected: Bool { monitor.demoActive || (ble.state == .connected && monitor.isLive) }
 
-    /// Az ESP32 él, de az ELM327 adapter nem válaszol neki (bekötés / baud hiba).
+    /// A Bluetooth kapcsolat él, de a dugó nem válaszol a parancsokra.
     private var adapterFault: Bool { connected && monitor.packet?.elm == false }
 
     private var text: String {
