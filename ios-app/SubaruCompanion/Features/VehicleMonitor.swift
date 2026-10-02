@@ -439,6 +439,7 @@ final class VehicleMonitor: ObservableObject {
         wasRunning = false
         dataVersion += 1
         refreshAverages()
+        if finished != nil { Task { @MainActor in await CloudSync.shared.autoBackupIfNeeded() } }
         checkAlternator()
         DriveActivity.shared.end()
         UserDefaults.standard.set(normCoolant, forKey: CarStore.key("normCoolant"))
@@ -595,7 +596,23 @@ final class VehicleMonitor: ObservableObject {
 
     // MARK: - Hibakódok
 
+    /// Kialakulóban lévő hiba: egyszer szól róla autónként, amíg el nem tűnik.
+    private func updatePendingCodes(_ p: VehiclePacket) {
+        guard p.ecu else { return }
+        let key = CarStore.key("pendingNotified")
+        let notified = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        let current = Set(p.pendingCodes).subtracting(p.faultCodes)
+        for code in current.subtracting(notified).sorted() {
+            notify.send(key: "pending-\(code)",
+                        title: tr("🟡 Kialakulóban lévő hiba: \(code)", "🟡 Developing fault: \(code)"),
+                        body: tr("\(DTC.describe(code)). A motorhiba lámpa még nem ég, de érdemes figyelni.",
+                                 "\(DTC.describe(code)). The check-engine light isn't on yet, but keep an eye on it."))
+        }
+        if current != notified { UserDefaults.standard.set(Array(current), forKey: key) }
+    }
+
     private func updateFaultCodes(_ p: VehiclePacket) {
+        updatePendingCodes(p)
         guard p.ecu, p.faultCodes != lastCodes else { return }
         lastCodes = p.faultCodes
         let fresh = DTC.update(active: p.faultCodes)

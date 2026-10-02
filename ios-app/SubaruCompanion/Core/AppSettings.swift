@@ -62,6 +62,8 @@ final class AppSettings: ObservableObject {
     @Published var featAlternator = true { didSet { d.set(featAlternator, forKey: "featAlternator") } }
     @Published var featDrain = true { didSet { d.set(featDrain, forKey: "featDrain") } }
     @Published var featTripCost = true { didSet { d.set(featTripCost, forKey: "featTripCost") } }
+    /// Több autónál induláskor megkérdezi, melyikkel mész
+    @Published var askCarOnLaunch = true { didSet { d.set(askCarOnLaunch, forKey: "askCarOnLaunch") } }
 
     /// Műszerfal: a részek sorrendje és az elrejtettek
     @Published var dashOrder: [DashSection] = DashSection.allCases {
@@ -79,7 +81,7 @@ final class AppSettings: ObservableObject {
     static let backupKeys = [
         "activeCarId", "lang", "fuelPrice", "onboarded", "dashOrder", "dashHidden",
         "featParkingTimer", "featLeftRunning", "featMonthly", "featRange", "featBatteryHealth", "featIdle",
-        "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featDrain", "featTripCost"
+        "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featDrain", "featTripCost", "askCarOnLaunch"
     ]
 
     private init() {
@@ -88,7 +90,7 @@ final class AppSettings: ObservableObject {
             "featParkingTimer": true, "featLeftRunning": true, "featMonthly": true,
             "featRange": true, "featBatteryHealth": true, "featIdle": true,
             "featLiveActivity": true, "featAutoFill": true, "featOverheatEarly": true,
-            "featAlternator": true, "featDrain": true, "featTripCost": true
+            "featAlternator": true, "featDrain": true, "featTripCost": true, "askCarOnLaunch": true
         ])
         load()
     }
@@ -110,6 +112,7 @@ final class AppSettings: ObservableObject {
         featAlternator = d.bool(forKey: "featAlternator")
         featDrain = d.bool(forKey: "featDrain")
         featTripCost = d.bool(forKey: "featTripCost")
+        askCarOnLaunch = d.bool(forKey: "askCarOnLaunch")
 
         let hidden = Set((d.stringArray(forKey: "dashHidden") ?? []).compactMap(DashSection.init(rawValue:)))
         var order = (d.stringArray(forKey: "dashOrder") ?? []).compactMap(DashSection.init(rawValue:))

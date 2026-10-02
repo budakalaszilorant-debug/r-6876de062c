@@ -71,6 +71,7 @@ struct StatTile: View {
 struct ConnectionBar: View {
     @EnvironmentObject var ble: BLEManager
     @EnvironmentObject var monitor: VehicleMonitor
+    var onCarTap: (() -> Void)? = nil
 
     private var connected: Bool { monitor.demoActive || (ble.state == .connected && monitor.isLive) }
 
@@ -80,10 +81,7 @@ struct ConnectionBar: View {
     private var text: String {
         if monitor.demoActive { return tr("Demo mód — szimulált adatok", "Demo mode — simulated data") }
         if adapterFault { return tr("Az OBD adapter nem válaszol", "OBD adapter not responding") }
-        if connected {
-            let name = AppSettings.shared.carName
-            return tr("Csatlakozva — \(name)", "Connected — \(name)")
-        }
+        if connected { return tr("Csatlakozva", "Connected") }
         switch ble.state {
         case .off: return tr("Bluetooth kikapcsolva", "Bluetooth is off")
         case .unauthorized: return tr("Bluetooth engedély hiányzik", "Bluetooth permission missing")
@@ -105,6 +103,7 @@ struct ConnectionBar: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Theme.text3)
             }
+            if let onCarTap { CarSwitcherButton(action: onCarTap) }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)

@@ -62,6 +62,16 @@ enum ServiceStore {
         UserDefaults.standard.removeObject(forKey: "svcNotified-\(car)-\(id)")
     }
 
+    /// Napi átlagos km az elmúlt 90 nap útjaiból (nil, ha még kevés az adat).
+    static func kmPerDay(car: Int = CarStore.activeId) -> Double? {
+        let since = Date().addingTimeInterval(-90 * 86400).timeIntervalSince1970
+        let row = db.query("SELECT SUM(distance_km), MIN(start) FROM trips WHERE end_t IS NOT NULL AND car_id = ? AND start >= ?",
+                           [car, since]) { ($0.double(0), $0.optDouble(1)) }.first
+        guard let row, let first = row.1, row.0 >= 20 else { return nil }
+        let days = max(14, (Date().timeIntervalSince1970 - first) / 86400)
+        return row.0 / days
+    }
+
     static func setInterval(_ id: String, km: Double) {
         guard km.isFinite, km >= 0, km <= 500_000 else { return }
         db.execute("UPDATE service_plan SET interval_km = ? WHERE car_id = ? AND item = ?", [km, CarStore.activeId, id])

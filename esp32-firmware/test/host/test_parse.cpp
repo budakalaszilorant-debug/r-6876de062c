@@ -31,6 +31,8 @@ int main() {
   CHECK(isCommandAllowed("020200"));
   CHECK(!isCommandAllowed("020C01"));
   CHECK(!isCommandAllowed("020C"));
+  CHECK(isCommandAllowed("07"));         // függő hibák
+  CHECK(isCommandAllowed("0A"));         // állandó hibák
   CHECK(!isCommandAllowed("04"));        // hibakód törlés
   CHECK(!isCommandAllowed("0400"));
   CHECK(!isCommandAllowed("08"));        // vezérlés
@@ -86,7 +88,10 @@ int main() {
   // ── Hibakódok ──
   std::vector<String> d;
   CHECK(parseDtcs("43020420030100", true, 10, d) && same(d, {"P0420", "P0301"}));          // CAN egy keret
-  CHECK(parseDtcs("4300", true, 10, d) && d.empty());                                      // CAN, nincs kód
+  CHECK(parseDtcs("4300", true, 10, d) && d.empty());
+  CHECK(parseDtcs("47010171", true, 10, d, "47") && same(d, {"P0171"}));                   // függő kód
+  CHECK(!parseDtcs("43010171", true, 10, d, "47"));                                         // rossz mód válasza
+  CHECK(parseDtcs("4A010420", true, 10, d, "4A") && same(d, {"P0420"}));                   // állandó kód                                      // CAN, nincs kód
   CHECK(parseDtcs("00A\r0:430401330420\r1:03010302000000", true, 10, d) &&
         same(d, {"P0133", "P0420", "P0301", "P0302"}));                                    // CAN több keret
   CHECK(parseDtcs("43010420\r4300", true, 10, d) && same(d, {"P0420"}));                   // két vezérlő

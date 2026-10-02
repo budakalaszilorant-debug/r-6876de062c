@@ -20,6 +20,12 @@ struct VehiclePacket: Equatable {
     var intakeTemp: Double?
     var maf: Double?
     var faultCodes: [String] = []
+    /// Kialakulóban lévő (még nem megerősített) és állandó hibakódok
+    var pendingCodes: [String] = []
+    var permanentCodes: [String] = []
+    /// Rövid és hosszú távú keverékkorrekció (%), + = szegény keveréket kompenzál
+    var stft: Double?
+    var ltft: Double?
     var vin: String?
     var odometerKm: Double?
     var distSinceClearKm: Double?
@@ -64,6 +70,9 @@ struct VehiclePacket: Equatable {
         case fuelLevel = "fuel_level"
         case intakeTemp = "intake_temp"
         case faultCodes = "fault_codes"
+        case pendingCodes = "pending_codes"
+        case permanentCodes = "permanent_codes"
+        case stft, ltft
         case odometerKm = "odometer_km"
         case distSinceClearKm = "dist_since_clear_km"
         case tripKm = "trip_km"
@@ -119,6 +128,10 @@ extension VehiclePacket: Decodable {
         intakeTemp = opt(.intakeTemp)
         maf = opt(.maf)
         faultCodes = opt(.faultCodes) ?? []
+        pendingCodes = opt(.pendingCodes) ?? []
+        permanentCodes = opt(.permanentCodes) ?? []
+        stft = opt(.stft)
+        ltft = opt(.ltft)
         vin = opt(.vin)
         odometerKm = opt(.odometerKm)
         distSinceClearKm = opt(.distSinceClearKm)

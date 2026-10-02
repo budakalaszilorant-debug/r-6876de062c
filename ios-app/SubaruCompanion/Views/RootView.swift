@@ -4,6 +4,9 @@ struct RootView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var monitor: VehicleMonitor
     @State private var showGarage = UserDefaults.standard.bool(forKey: "uiGarage")
+    @State private var showPicker = false
+    /// Csak az app indulásakor kérdez egyszer (nem minden nézetfrissítéskor)
+    private static var askedThisLaunch = false
     @Environment(\.verticalSizeClass) private var vSize
     /// Kezdő fül; a "-uiTab N" indítási paraméter felülírja (képernyőképekhez).
     @State private var tab = UserDefaults.standard.integer(forKey: "uiTab")
@@ -15,6 +18,15 @@ struct RootView: View {
         UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 
+    /// Több autó esetén induláskor rákérdez, melyikkel mész, hacsak az app már nem csatlakozott egyhez.
+    private func askForCarIfNeeded() {
+        guard !Self.askedThisLaunch, settings.onboarded, settings.askCarOnLaunch,
+              !monitor.demoActive, !monitor.isLive, !monitor.needsCarSelection,
+              CarStore.all().count > 1, !UserDefaults.standard.bool(forKey: "uiDemo") else { return }
+        Self.askedThisLaunch = true
+        showPicker = true
+    }
+
     var body: some View {
         Group {
             if vSize == .compact {
@@ -22,7 +34,7 @@ struct RootView: View {
                 LandscapeDashboard()
             } else {
                 VStack(spacing: 0) {
-                    ConnectionBar()
+                    ConnectionBar(onCarTap: { showPicker = true })
                     if monitor.needsCarSelection {
                         Button(tr("Válaszd ki a csatlakoztatott autót", "Select the connected car")) { showGarage = true }
                             .padding(10)
@@ -53,6 +65,10 @@ struct RootView: View {
         .onChange(of: monitor.needsCarSelection) { needed in
             if needed && settings.onboarded { showGarage = true }
         }
+        .sheet(isPresented: $showPicker) {
+            CarPickerSheet().presentationDetents([.medium, .large])
+        }
+        .onAppear(perform: askForCarIfNeeded)
         .sheet(isPresented: $showGarage) {
             NavigationStack {
                 GarageView().toolbar {

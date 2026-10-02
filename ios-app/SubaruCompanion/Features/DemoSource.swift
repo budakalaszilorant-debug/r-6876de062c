@@ -62,6 +62,9 @@ final class DemoSource {
         p.vin = "JF1GR7DEMO0000000"
         p.mon = [0x82, 0x07, 0xE5, 0x20]     // MIL ég, 2 kód, katalizátor-teszt még nem futott le
         p.distSinceClearKm = 1240
+        p.pendingCodes = t > 20 ? ["P0171"] : []
+        p.stft = 2.3 + 1.5 * sin(t)
+        p.ltft = 7.8
         p.timeClearMin = 60 * 24 * 21
         return p
     }

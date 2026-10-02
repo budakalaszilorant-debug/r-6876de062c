@@ -98,7 +98,13 @@ jobs:
         run: |
           cd ios-app
           set -o pipefail
-          xcodebuild build             -project SubaruCompanion.xcodeproj             -scheme SubaruCompanion             -configuration Release             -destination 'generic/platform=iOS'             -derivedDataPath build-device             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""             | tee device-build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          # Google bejelentkezés: a GOOGLE_IOS_CLIENT_ID repo-változóból (Settings → Variables), ha meg van adva
+          CID="${{ vars.GOOGLE_IOS_CLIENT_ID }}"
+          GOOGLE_ARGS=()
+          if [ -n "$CID" ]; then
+            GOOGLE_ARGS=(GOOGLE_CLIENT_ID="$CID" GOOGLE_REVERSED_CLIENT_ID="com.googleusercontent.apps.${CID%.apps.googleusercontent.com}")
+          fi
+          xcodebuild build             -project SubaruCompanion.xcodeproj             -scheme SubaruCompanion             -configuration Release             -destination 'generic/platform=iOS'             -derivedDataPath build-device             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" "${GOOGLE_ARGS[@]}"             | tee device-build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" device-build.log
           mkdir Payload
           cp -R build-device/Build/Products/Release-iphoneos/SubaruCompanion.app Payload/

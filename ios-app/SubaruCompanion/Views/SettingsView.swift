@@ -48,6 +48,8 @@ struct SettingsView: View {
 
                 FeatureToggles()
 
+                CloudSection()
+
                 BackupSection()
 
                 Section(tr("Jármű", "Vehicle")) {
@@ -82,7 +84,8 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    row(tr("Adatkezelés", "Data"), tr("Csak a telefonon", "On this phone only"))
+                    row(tr("Adatkezelés", "Data"), CloudSync.shared.signedIn ? tr("Telefon + saját Google Drive", "Phone + your Google Drive")
+                                                                     : tr("Csak a telefonon", "On this phone only"))
                     row(tr("Autó vezérlése", "Car control"), tr("Nincs — csak olvasás", "None — read-only"))
                 }
             }

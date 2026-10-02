@@ -29,6 +29,8 @@ inline bool isCommandAllowed(String c) {
   if (c.length() == 6 && c.startsWith("02") && isHexChar(c[2]) && isHexChar(c[3]) &&
       c[4] == '0' && c[5] == '0') return true;
   if (c == "03") return true;                        // tárolt hibakódok olvasása
+  if (c == "07") return true;                        // függő (kialakulóban lévő) hibakódok olvasása
+  if (c == "0A") return true;                        // állandó hibakódok olvasása
   if (c == "0902") return true;                      // VIN
   if (c.length() == 4 && c.startsWith("01") && isHexChar(c[2]) && isHexChar(c[3])) {
     return true;                                     // Mode 01 élő adat
@@ -136,9 +138,11 @@ inline String formatDtc(uint8_t a, uint8_t b) {
   return String(buf);
 }
 
-/// Mode 03 válasz -> hibakód lista. CAN-en a 43 után darabszám bájt jön, régi protokollon nem.
+/// Mode 03 / 07 / 0A válasz -> hibakód lista. A válasz első bájtja a mód + 0x40 (43, 47, 4A).
+/// CAN-en ezután darabszám bájt jön, régi protokollon nem.
 /// - Returns: false, ha a válasz hibás (ilyenkor a korábbi lista maradjon érvényben).
-inline bool parseDtcs(const String& resp, bool isCan, size_t maxCodes, std::vector<String>& out) {
+inline bool parseDtcs(const String& resp, bool isCan, size_t maxCodes, std::vector<String>& out,
+                      const char* replyPrefix = "43") {
   if (resp.indexOf("NO DATA") >= 0) { out.clear(); return true; }  // nincs tárolt hiba
   if (isElmError(resp)) return false;
 
@@ -158,7 +162,7 @@ inline bool parseDtcs(const String& resp, bool isCan, size_t maxCodes, std::vect
   std::vector<String> found;
   bool sawReply = false;
   for (const String& m : msgs) {
-    if (!m.startsWith("43")) continue;
+    if (!m.startsWith(replyPrefix)) continue;
     sawReply = true;
     int pos = 2;
     int count = 99;

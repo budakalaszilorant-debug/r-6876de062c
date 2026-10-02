@@ -60,54 +60,77 @@ struct MonthlySummaryCard: View {
     @EnvironmentObject var monitor: VehicleMonitor
     @State private var month = Date()
     @State private var summary = MonthlySummary(month: Date())
+    @State private var previous = MonthlySummary(month: Date())
+    @State private var daily: [(day: Int, km: Double)] = []
 
     private var isCurrentMonth: Bool {
         MonthlySummary.monthStart(month) >= MonthlySummary.monthStart(Date())
     }
 
+    /// Fő költség: a tankolási napló, ha van; különben az utak becsült benzinköltsége.
+    private var mainCost: Double { summary.cost > 0 ? summary.cost : summary.tripCost }
+    private var previousCost: Double { previous.cost > 0 ? previous.cost : previous.tripCost }
+
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 14) {
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    Text(MonthlySummary.title(month))
+                    stepButton("chevron.left", enabled: true) { shift(-1) }
+                    Spacer()
+                    Text(MonthlySummary.title(month).capitalized)
                         .font(.system(size: 17, weight: .semibold))
                     Spacer()
-                    stepButton("chevron.left", enabled: true) { shift(-1) }
                     stepButton("chevron.right", enabled: !isCurrentMonth) { shift(1) }
                 }
 
-                HStack(alignment: .top) {
-                    stat(Fmt.km(summary.km), "km")
-                    Spacer()
-                    stat("\(summary.trips)", tr("út", "trips"))
-                    Spacer()
-                    stat(Fmt.one(summary.avgL100), "l/100")
-                }
-
-                Divider().overlay(Theme.stroke)
-
-                row(tr("Tankolások", "Fill-ups"), "\(Fmt.km(summary.cost)) Ft")
-                if settings.featTripCost {
-                    row(tr("Utak benzinköltsége", "Trip fuel cost"), "\(Fmt.km(summary.tripCost)) Ft")
-                }
-                if summary.workKm > 0 {
-                    row(tr("Munka utak", "Work trips"), "\(Fmt.km(summary.workKm)) km")
-                }
-                row(tr("Vezetési idő", "Driving time"), Fmt.duration(summary.driveSeconds))
-                if settings.featIdle {
-                    row(tr("Alapjárat", "Idling"),
-                        "\(Fmt.duration(summary.idleSeconds)) · \(Fmt.one(summary.idleFuelL)) l · \(Fmt.km(summary.idleCost)) Ft")
-                }
-
-                if summary.trips > 0 {
-                    ShareLink(item: MonthlySummary.csv(for: month),
-                              preview: SharePreview(tr("Útnyilvántartás", "Trip log") + " — " + MonthlySummary.title(month))) {
-                        Label(tr("Útnyilvántartás megosztása", "Share trip log"), systemImage: "square.and.arrow.up")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if summary.isEmpty {
+                    EmptyState(icon: "calendar", title: tr("Ebben a hónapban nincs adat", "No data this month"),
+                               message: tr("Az utak és a tankolások maguktól ide kerülnek.",
+                                           "Trips and fill-ups appear here automatically."))
+                } else {
+                    HStack(alignment: .top) {
+                        hero(Fmt.km(summary.km), "km", MonthlySummary.change(summary.km, previous.km), higherIsBad: false)
+                        Spacer()
+                        hero(Fmt.km(mainCost), "Ft", MonthlySummary.change(mainCost, previousCost), higherIsBad: true)
                     }
-                    .buttonStyle(PressableStyle())
+
+                    KmBars(daily: daily)
+
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        tile("\(summary.trips)", tr("út", "trips"))
+                        tile(Fmt.one(summary.avgL100), "l/100")
+                        tile(Fmt.duration(summary.driveSeconds), tr("vezetés", "driving"))
+                    }
+
+                    VStack(spacing: 10) {
+                        if summary.cost > 0 {
+                            row(tr("Tankolások", "Fill-ups"), "\(Fmt.km(summary.cost)) Ft · \(Fmt.one(summary.liters)) l")
+                        }
+                        if settings.featTripCost, summary.tripCost > 0 {
+                            row(tr("Utak becsült költsége", "Estimated trip cost"), "\(Fmt.km(summary.tripCost)) Ft")
+                        }
+                        if summary.km > 1, mainCost > 0 {
+                            row(tr("Költség km-enként", "Cost per km"), "\(Fmt.one(mainCost / summary.km)) Ft")
+                        }
+                        if summary.workKm > 0 {
+                            row(tr("Munka utak", "Work trips"), "\(Fmt.km(summary.workKm)) km")
+                        }
+                        if settings.featIdle, summary.idleSeconds > 60 {
+                            row(tr("Alapjárat", "Idling"),
+                                "\(Fmt.duration(summary.idleSeconds)) · \(Fmt.km(summary.idleCost)) Ft")
+                        }
+                    }
+
+                    if summary.trips > 0 {
+                        ShareLink(item: MonthlySummary.csv(for: month),
+                                  preview: SharePreview(tr("Útnyilvántartás", "Trip log") + " — " + MonthlySummary.title(month))) {
+                            Label(tr("Útnyilvántartás megosztása", "Share trip log"), systemImage: "square.and.arrow.up")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(PressableStyle())
+                    }
                 }
             }
         }
@@ -121,7 +144,12 @@ struct MonthlySummaryCard: View {
         reload()
     }
 
-    private func reload() { summary = MonthlySummary.compute(for: month) }
+    private func reload() {
+        summary = MonthlySummary.compute(for: month)
+        let prev = Calendar.current.date(byAdding: .month, value: -1, to: month) ?? month
+        previous = MonthlySummary.compute(for: prev)
+        daily = MonthlySummary.dailyKm(for: month)
+    }
 
     private func stepButton(_ icon: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -135,11 +163,34 @@ struct MonthlySummaryCard: View {
         .opacity(enabled ? 1 : 0.35)
     }
 
-    private func stat(_ value: String, _ unit: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(value).font(Theme.number(26)).contentTransition(.numericText())
-            Text(unit).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text2)
+    /// Nagy szám, alatta a változás az előző hónaphoz képest.
+    @ViewBuilder
+    private func hero(_ value: String, _ unit: String, _ change: Double?, higherIsBad: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value).font(Theme.number(34, .bold)).tracking(-0.6).contentTransition(.numericText())
+                Text(unit).font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text2)
+            }
+            if let c = change, abs(c) >= 1 {
+                Label(tr("\(Int(abs(c).rounded())) % az előző hónaphoz", "\(Int(abs(c).rounded()))% vs last month"),
+                      systemImage: c > 0 ? "arrow.up.right" : "arrow.down.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle((c > 0) == higherIsBad ? Theme.warn : Theme.ok)
+            } else {
+                Text(tr("előző hónap: —", "last month: —"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.text3)
+            }
         }
+    }
+
+    private func tile(_ value: String, _ unit: String) -> some View {
+        VStack(spacing: 3) {
+            Text(value).font(Theme.number(20)).lineLimit(1).minimumScaleFactor(0.6)
+            Text(unit).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text3)
+        }
+        .frame(maxWidth: .infinity, minHeight: 58)
+        .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func row(_ label: String, _ value: String) -> some View {
@@ -148,6 +199,34 @@ struct MonthlySummaryCard: View {
             Spacer()
             Text(value).font(Theme.number(15))
         }
+    }
+}
+
+/// Napi km oszlopok; a mai nap kiemelve.
+private struct KmBars: View {
+    let daily: [(day: Int, km: Double)]
+
+    var body: some View {
+        let today = Calendar.current.component(.day, from: Date())
+        Chart {
+            ForEach(daily, id: \.day) { d in
+                BarMark(x: .value("nap", d.day), y: .value("km", d.km), width: .ratio(0.6))
+                    .foregroundStyle(d.day == today ? Theme.accent : Theme.accent.opacity(0.45))
+                    .cornerRadius(2)
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: [1, 10, 20, max(21, daily.count)]) { _ in
+                AxisValueLabel().foregroundStyle(Theme.text3)
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { _ in
+                AxisGridLine().foregroundStyle(Theme.stroke)
+                AxisValueLabel().foregroundStyle(Theme.text3)
+            }
+        }
+        .frame(height: 110)
     }
 }
 
@@ -245,6 +324,7 @@ struct FeatureToggles: View {
             toggle(tr("Akku egészség", "Battery health"), "bolt.heart", $settings.featBatteryHealth)
             toggle(tr("Alapjárati idő számláló", "Idle time counter"), "hourglass", $settings.featIdle)
             toggle(tr("Út költsége forintban", "Trip cost"), "banknote", $settings.featTripCost)
+            toggle(tr("Induláskor kérdezze az autót", "Ask for the car on launch"), "car.2", $settings.askCarOnLaunch)
             toggle(tr("Tankolás észlelése", "Fill-up detection"), "fuelpump.fill", $settings.featAutoFill)
             toggle(tr("Élő tevékenység a zárolási képernyőn", "Lock screen live activity"), "lock.iphone", $settings.featLiveActivity)
             toggle(tr("Korai túlmelegedés jelzés", "Early overheat warning"), "thermometer.high", $settings.featOverheatEarly)

@@ -29,14 +29,19 @@ struct SubaruCompanionApp: App {
                 .environmentObject(monitor)
                 .environmentObject(location)
                 .preferredColorScheme(.dark)
+                .onOpenURL { url in CloudSync.shared.handle(url) }
                 .task {
+                    CloudSync.shared.restoreSignIn()
                     guard !Self.screenshotMode else { return }  // ne takarja engedélykérő ablak a képet
                     await NotificationManager.shared.requestPermission()
                     location.requestPermission()
                 }
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .background { ServiceScheduler.schedule() }
+            if phase == .background {
+                ServiceScheduler.schedule()
+                Task { await CloudSync.shared.autoBackupIfNeeded() }
+            }
             if phase == .active {
                 NotificationManager.shared.clearBadge()
                 VehicleMonitor.shared.startLiveActivityIfNeeded()

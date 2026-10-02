@@ -114,6 +114,9 @@ const char* voltageSrc = "adapter";
 double   tripKm = 0;
 uint32_t lastSpeedAt = 0;
 std::vector<String> dtcs;
+std::vector<String> pendingDtcs;     // Mode 07: még nem megerősített, kialakulóban lévő hibák
+std::vector<String> permanentDtcs;   // Mode 0A: törléssel sem tűnnek el, amíg a hiba fennáll
+float    stft = NAN, ltft = NAN;     // rövid és hosszú távú keverékkorrekció, 1. sor (%)
 
 // A hibakód keletkezésekor az ECU által rögzített adatok
 struct FreezeFrame {
@@ -255,6 +258,8 @@ void readFreezeFrame() {
 }
 
 void readDtcs() {
+  parseDtcs(elmSend("07", 3000), isCan, MAX_DTCS, pendingDtcs, "47");
+  parseDtcs(elmSend("0A", 3000), isCan, MAX_DTCS, permanentDtcs, "4A");
   std::vector<String> before = dtcs;
   if (!parseDtcs(elmSend("03", 3000), isCan, MAX_DTCS, dtcs)) return;
   if (dtcs.empty()) { freezeFrame = FreezeFrame(); return; }
@@ -267,6 +272,9 @@ void readDtcs() {
 // ───────────── Járműállapot ─────────────
 void clearLiveValues() {
   rpm = speed = load = throttle = fuel = intake = coolant = maf = NAN;
+  stft = ltft = NAN;
+  pendingDtcs.clear();
+  permanentDtcs.clear();
   vin = "";
   fuelRate = NAN;
   fuelTypeCode = -1;
@@ -387,6 +395,8 @@ void pollScheduled(uint32_t now) {
   if (now - tSlow >= SLOW_INTERVAL_MS) {
     tSlow = now;
     if (supported[0x51] && queryPid(0x51, 1, b)) fuelTypeCode = b[0];
+    stft = (supported[0x06] && queryPid(0x06, 1, b)) ? (b[0] - 128) * 100.0f / 128.0f : NAN;
+    ltft = (supported[0x07] && queryPid(0x07, 1, b)) ? (b[0] - 128) * 100.0f / 128.0f : NAN;
     intake = queryPid(0x0F, 1, b) ? b[0] - 40.0f : NAN;
     fuel   = (supported[0x2F] && queryPid(0x2F, 1, b)) ? b[0] * 100.0f / 255.0f : NAN;
   }
@@ -508,6 +518,12 @@ String buildPacket() {
     if (!isnan(freezeFrame.coolant)) f["coolant"] = (long)lroundf(freezeFrame.coolant);
     if (!isnan(freezeFrame.load)) f["load"] = (long)lroundf(freezeFrame.load);
   }
+  JsonArray pend = doc["pending_codes"].to<JsonArray>();
+  for (const String& c : pendingDtcs) pend.add(c);
+  JsonArray perm = doc["permanent_codes"].to<JsonArray>();
+  for (const String& c : permanentDtcs) perm.add(c);
+  putNum(doc, "stft", stft, 1);
+  putNum(doc, "ltft", ltft, 1);
   JsonArray arr = doc["fault_codes"].to<JsonArray>();
   for (const String& c : dtcs) arr.add(c);
   if (vin.length() == 17) doc["vin"] = vin; else doc["vin"] = nullptr;

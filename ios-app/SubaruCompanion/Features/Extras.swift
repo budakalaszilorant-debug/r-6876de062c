@@ -108,6 +108,31 @@ struct MonthlySummary {
         return s
     }
 
+    /// Naponta megtett km a hónapban (a grafikonhoz). A hónap minden napja szerepel, 0-val is.
+    static func dailyKm(for date: Date) -> [(day: Int, km: Double)] {
+        let cal = Calendar.current
+        let start = monthStart(date)
+        let end = cal.date(byAdding: .month, value: 1, to: start) ?? start
+        let days = cal.range(of: .day, in: .month, for: start)?.count ?? 30
+        var totals = [Double](repeating: 0, count: days + 1)
+        let rows = Database.shared.query(
+            "SELECT start, distance_km FROM trips WHERE end_t IS NOT NULL AND start >= ? AND start < ? AND car_id = ?",
+            [start.timeIntervalSince1970, end.timeIntervalSince1970, CarStore.activeId]) {
+            (Date(timeIntervalSince1970: $0.double(0)), $0.double(1))
+        }
+        for (d, km) in rows {
+            let day = cal.component(.day, from: d)
+            if day >= 1 && day <= days { totals[day] += km }
+        }
+        return (1...days).map { (day: $0, km: totals[$0]) }
+    }
+
+    /// Változás az előző hónaphoz képest, százalékban (nil, ha nincs mihez viszonyítani).
+    static func change(_ now: Double, _ before: Double) -> Double? {
+        guard before > 0.5 else { return nil }
+        return (now - before) / before * 100
+    }
+
     /// A hónap útjai CSV-ben (útnyilvántartáshoz).
     static func csv(for date: Date) -> String {
         let start = monthStart(date)
