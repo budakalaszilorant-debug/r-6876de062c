@@ -104,6 +104,9 @@ final class Database {
                 fatalError("Garage migration failed; original database preserved: \(error)")
             }
         }
+        // Fenntartási költségek és a tankolás kútja
+        execute("CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT, car_id INTEGER, date REAL, category TEXT, amount REAL, note TEXT)")
+        execute("ALTER TABLE fills ADD COLUMN station TEXT")
     }
 
     @discardableResult

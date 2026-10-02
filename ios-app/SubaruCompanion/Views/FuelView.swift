@@ -67,6 +67,9 @@ struct FuelView: View {
                         }
                     }
 
+                    let stations = StationStats.all()
+                    if stations.count > 1 { StationsCard(stats: stations) }
+
                     VStack(alignment: .leading, spacing: 10) {
                         SectionLabel(text: tr("Napló", "Log"))
                         Card(padding: 0) {
@@ -135,6 +138,8 @@ struct AddFillSheet: View {
     @State private var odometer = ""
     @State private var full = true
     @State private var date = Date()
+    @State private var station = ""
+    @State private var recentStations: [String] = []
 
     private func number(_ s: String) -> Double? {
         Double(s.replacingOccurrences(of: ",", with: ".").replacingOccurrences(of: " ", with: ""))
@@ -156,6 +161,23 @@ struct AddFillSheet: View {
                         Text("\(Fmt.int(c / l)) Ft/l")
                     }
                 }
+                Section(tr("Kút", "Station")) {
+                    TextField(tr("pl. MOL Fehérvári út", "e.g. Shell Main St"), text: $station)
+                    if !recentStations.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(recentStations, id: \.self) { name in
+                                    Button(name) { station = name }
+                                        .font(.system(size: 14, weight: .medium))
+                                        .padding(.horizontal, 12).frame(height: 32)
+                                        .background(station == name ? Theme.accent : Theme.surface2, in: Capsule())
+                                        .foregroundStyle(station == name ? Color.white : Theme.text)
+                                        .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                }
                 Section {
                     Toggle(tr("Teli tank", "Full tank"), isOn: $full)
                     DatePicker(tr("Időpont", "Date"), selection: $date, in: ...Date())
@@ -173,6 +195,7 @@ struct AddFillSheet: View {
             }
             .onAppear {
                 if settings.odometerSet { odometer = String(Int(settings.odometerKm)) }
+                recentStations = StationStats.recentNames()
                 if let l = prefillLiters {
                     liters = String(Int(l))
                     cost = String(Int(l * settings.lastFuelPrice))
@@ -195,7 +218,7 @@ struct AddFillSheet: View {
 
     private func save() {
         guard let l = number(liters), let c = number(cost), let o = number(odometer) else { return }
-        FuelStore.add(date: date, liters: l, cost: c, odometer: o, full: full)
+        FuelStore.add(date: date, liters: l, cost: c, odometer: o, full: full, station: station)
         settings.lastFuelPrice = c / l
         // A most beírt óraállás pontosabb, mint a sebességből integrált érték: ehhez igazítunk.
         // Régi dátumú (utólag rögzített) töltés nem írja felül.

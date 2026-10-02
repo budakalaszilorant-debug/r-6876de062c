@@ -14,7 +14,7 @@ func tr(_ hu: String, _ en: String) -> String {
 
 /// A műszerfal átrendezhető részei (a nagy tárcsa mindig felül van).
 enum DashSection: String, CaseIterable, Identifiable {
-    case status, engine, trip, faults
+    case status, engine, trip, faults, tools
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -22,6 +22,7 @@ enum DashSection: String, CaseIterable, Identifiable {
         case .engine: return tr("Motor adatok", "Engine data")
         case .trip: return tr("Jelenlegi út", "Current trip")
         case .faults: return tr("Hibakódok", "Fault codes")
+        case .tools: return tr("Eszközök", "Tools")
         }
     }
 }
@@ -60,6 +61,8 @@ final class AppSettings: ObservableObject {
     @Published var featAutoFill = true { didSet { d.set(featAutoFill, forKey: "featAutoFill") } }
     @Published var featOverheatEarly = true { didSet { d.set(featOverheatEarly, forKey: "featOverheatEarly") } }
     @Published var featAlternator = true { didSet { d.set(featAlternator, forKey: "featAlternator") } }
+    @Published var featSmartOil = true { didSet { d.set(featSmartOil, forKey: "featSmartOil") } }
+    @Published var featFrost = true { didSet { d.set(featFrost, forKey: "featFrost") } }
     @Published var featTripCost = true { didSet { d.set(featTripCost, forKey: "featTripCost") } }
     /// Több autónál induláskor megkérdezi, melyikkel mész
     @Published var askCarOnLaunch = true { didSet { d.set(askCarOnLaunch, forKey: "askCarOnLaunch") } }
@@ -80,7 +83,7 @@ final class AppSettings: ObservableObject {
     static let backupKeys = [
         "activeCarId", "lang", "fuelPrice", "onboarded", "dashOrder", "dashHidden",
         "featParkingTimer", "featLeftRunning", "featMonthly", "featRange", "featBatteryHealth", "featIdle",
-        "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featTripCost", "askCarOnLaunch"
+        "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featTripCost", "askCarOnLaunch", "featSmartOil", "featFrost"
     ]
 
     private init() {
@@ -89,7 +92,7 @@ final class AppSettings: ObservableObject {
             "featParkingTimer": true, "featLeftRunning": true, "featMonthly": true,
             "featRange": true, "featBatteryHealth": true, "featIdle": true,
             "featLiveActivity": true, "featAutoFill": true, "featOverheatEarly": true,
-            "featAlternator": true, "featTripCost": true, "askCarOnLaunch": true
+            "featAlternator": true, "featTripCost": true, "askCarOnLaunch": true, "featSmartOil": true, "featFrost": true
         ])
         load()
     }
@@ -109,6 +112,8 @@ final class AppSettings: ObservableObject {
         featAutoFill = d.bool(forKey: "featAutoFill")
         featOverheatEarly = d.bool(forKey: "featOverheatEarly")
         featAlternator = d.bool(forKey: "featAlternator")
+        featSmartOil = d.bool(forKey: "featSmartOil")
+        featFrost = d.bool(forKey: "featFrost")
         featTripCost = d.bool(forKey: "featTripCost")
         askCarOnLaunch = d.bool(forKey: "askCarOnLaunch")
 

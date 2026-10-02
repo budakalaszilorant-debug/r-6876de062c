@@ -194,6 +194,7 @@ struct ServiceDoneSheet: View {
     @State private var km = ""
     @State private var date = Date()
     @State private var interval = ""
+    @State private var cost = ""
 
     var body: some View {
         NavigationStack {
@@ -209,6 +210,17 @@ struct ServiceDoneSheet: View {
                         Text("km").foregroundStyle(Theme.text2)
                     }
                     DatePicker(tr("Dátum", "Date"), selection: $date, in: ...Date(), displayedComponents: .date)
+                }
+                Section(tr("Költség (nem kötelező)", "Cost (optional)")) {
+                    HStack {
+                        Text(tr("Fizetett összeg", "Amount paid"))
+                        Spacer()
+                        TextField("0", text: $cost)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .font(Theme.number(17))
+                        Text("Ft").foregroundStyle(Theme.text2)
+                    }
                 }
                 Section(tr("Csereperiódus", "Interval")) {
                     HStack {
@@ -233,6 +245,9 @@ struct ServiceDoneSheet: View {
                             ServiceStore.setInterval(item.id, km: i)
                         }
                         ServiceStore.markDone(item.id, km: v, date: date)
+                        if let c = Double(cost.replacingOccurrences(of: " ", with: "")), c > 0 {
+                            ExpenseStore.add(date: date, category: .service, amount: c, note: item.name)
+                        }
                         Haptics.success()
                         onSave()
                         dismiss()

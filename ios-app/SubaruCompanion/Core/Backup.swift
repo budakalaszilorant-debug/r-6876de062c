@@ -4,7 +4,9 @@ import Foundation
 /// A fájl a telefonon marad, hacsak a felhasználó maga el nem küldi valahova.
 enum Backup {
     static let tables = ["cars", "trips", "trip_points", "fills", "parking", "voltage_log", "events",
-                         "battery_health", "service_plan", "service_done", "reminder_dates", "dtc_hist"]
+                         "battery_health", "service_plan", "service_done", "reminder_dates", "dtc_hist", "expenses"]
+    /// Később bevezetett táblák: régebbi mentésből hiányozhatnak
+    private static let optionalTables: Set<String> = ["expenses"]
 
     enum RestoreError: Error { case unreadable, wrongFormat }
 
@@ -89,6 +91,7 @@ enum Backup {
         var incoming: [String: [[String: Any]]] = [:]
         if tablesIn["cars"] != nil {
             for name in tables {
+                if tablesIn[name] == nil, optionalTables.contains(name) { incoming[name] = []; continue }
                 guard let rows = tablesIn[name] as? [[String: Any]] else { throw RestoreError.wrongFormat }
                 incoming[name] = rows
             }

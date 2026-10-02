@@ -7,6 +7,7 @@ struct FuelFill: Identifiable, Equatable {
     var cost: Double
     var odometer: Double
     var full: Bool
+    var station: String = ""
 
     var pricePerLiter: Double { liters > 0 ? cost / liters : 0 }
 }
@@ -26,16 +27,18 @@ enum FuelStore {
     private static var db: Database { .shared }
 
     static func all() -> [FuelFill] {
-        db.query("SELECT id, date, liters, cost, odometer, full FROM fills WHERE car_id = ? ORDER BY odometer DESC, date DESC",
+        db.query("SELECT id, date, liters, cost, odometer, full, station FROM fills WHERE car_id = ? ORDER BY odometer DESC, date DESC",
                  [CarStore.activeId]) {
             FuelFill(id: $0.int(0), date: Date(timeIntervalSince1970: $0.double(1)), liters: $0.double(2),
-                     cost: $0.double(3), odometer: $0.double(4), full: $0.int(5) == 1)
+                     cost: $0.double(3), odometer: $0.double(4), full: $0.int(5) == 1, station: $0.string(6))
         }
     }
 
-    static func add(date: Date, liters: Double, cost: Double, odometer: Double, full: Bool) {
-        db.execute("INSERT INTO fills(date, liters, cost, odometer, full, car_id) VALUES(?,?,?,?,?,?)",
-                   [date.timeIntervalSince1970, liters, cost, odometer, full ? 1 : 0, CarStore.activeId])
+    static func add(date: Date, liters: Double, cost: Double, odometer: Double, full: Bool, station: String = "") {
+        let name = station.trimmingCharacters(in: .whitespacesAndNewlines)
+        db.execute("INSERT INTO fills(date, liters, cost, odometer, full, car_id, station) VALUES(?,?,?,?,?,?,?)",
+                   [date.timeIntervalSince1970, liters, cost, odometer, full ? 1 : 0, CarStore.activeId,
+                    name.isEmpty ? nil : name])
     }
 
     static func delete(_ id: Int) {

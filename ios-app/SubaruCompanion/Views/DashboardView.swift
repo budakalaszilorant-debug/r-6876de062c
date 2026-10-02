@@ -95,6 +95,8 @@ struct DashboardView: View {
             }
         case .faults:
             FaultCodesCard(codes: p?.faultCodes ?? [], known: monitor.packet != nil)
+        case .tools:
+            ToolsCard()
         }
     }
 

@@ -16,6 +16,8 @@ struct ServiceStatus: Identifiable {
     let lastDate: Date?
     /// Hátralévő km (negatív = lejárt). nil, ha még nincs megadva az utolsó csere.
     let remainingKm: Double?
+    /// Okos olajcsere: a valós használat szorzója (1 = átlagos)
+    var wearFactor: Double = 1
     var id: String { item.id }
 
     enum Level { case unknown, ok, soon, overdue }
@@ -50,8 +52,16 @@ enum ServiceStore {
             guard let (km, date) = byId[item.id] else {
                 return ServiceStatus(item: item, lastKm: nil, lastDate: nil, remainingKm: nil)
             }
-            return ServiceStatus(item: item, lastKm: km, lastDate: Date(timeIntervalSince1970: date),
-                                 remainingKm: item.intervalKm > 0 ? km + item.intervalKm - odometer : nil)
+            let last = Date(timeIntervalSince1970: date)
+            var remaining = item.intervalKm > 0 ? km + item.intervalKm - odometer : nil
+            var factor = 1.0
+            // Okos olajcsere: rövid utak, hidegindítás, alapjárat többlet-kopása levonódik a hátralévő km-ből
+            if AppSettings.shared.featSmartOil, item.id == "oil" || item.id == "oil_filter", let r = remaining {
+                let wear = OilWear.since(last, car: car)
+                remaining = r - wear.extraKm
+                factor = wear.factor
+            }
+            return ServiceStatus(item: item, lastKm: km, lastDate: last, remainingKm: remaining, wearFactor: factor)
         }
     }
 
@@ -125,7 +135,10 @@ enum ServiceScheduler {
             ServiceStore.checkAndNotify()
             MonthlySummary.notifyIfNewMonth()
             schedule()
-            task.setTaskCompleted(success: true)
+            Task {
+                await FrostCheck.runIfDue()
+                task.setTaskCompleted(success: true)
+            }
         }
     }
 

@@ -227,6 +227,9 @@ struct ServiceRow: View {
         if let km = status.lastKm {
             s += tr(" · utoljára \(Fmt.km(km)) km", " · last at \(Fmt.km(km)) km")
         }
+        if status.wearFactor >= 1.1 {
+            s += tr(" · valós kopás ×\(Fmt.one(status.wearFactor))", " · real wear ×\(Fmt.one(status.wearFactor))")
+        }
         return s
     }
 

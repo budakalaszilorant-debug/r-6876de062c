@@ -257,12 +257,29 @@ struct BatteryHealthCard: View {
         }
     }
 
+    /// Trend a nyugalmi feszültségekből: mikor gyengülhet el az akku.
+    private var forecastText: (String, Color)? {
+        switch BatteryForecast.forecast(samples) {
+        case .notEnoughData: return nil
+        case .stable: return (tr("Stabil, nem gyengül", "Stable, not weakening"), Theme.ok)
+        case .weakening(let days):
+            if days <= 30 { return (tr("Hamarosan cserére szorulhat", "May need replacing soon"), Theme.bad) }
+            let months = max(1, days / 30)
+            return (tr("Gyengül: kb. \(months) hónap múlva lehet gond", "Weakening: trouble likely in about \(months) months"), Theme.warn)
+        }
+    }
+
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
                     Circle().fill(gradeColor).frame(width: 10, height: 10)
                     Text(gradeText).font(.system(size: 17, weight: .semibold))
+                }
+                if let forecast = forecastText {
+                    Label(forecast.0, systemImage: "chart.line.downtrend.xyaxis")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(forecast.1)
                 }
 
                 HStack(alignment: .top) {
@@ -329,6 +346,8 @@ struct FeatureToggles: View {
             toggle(tr("Élő tevékenység a zárolási képernyőn", "Lock screen live activity"), "lock.iphone", $settings.featLiveActivity)
             toggle(tr("Korai túlmelegedés jelzés", "Early overheat warning"), "thermometer.high", $settings.featOverheatEarly)
             toggle(tr("Generátor figyelő", "Alternator monitor"), "bolt.badge.clock", $settings.featAlternator)
+            toggle(tr("Okos olajcsere (valós használat)", "Smart oil change (real usage)"), "drop.triangle", $settings.featSmartOil)
+            toggle(tr("Fagyriasztás gyengülő akkunál", "Frost alert for a weak battery"), "snowflake", $settings.featFrost)
         }
     }
 

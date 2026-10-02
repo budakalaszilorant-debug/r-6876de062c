@@ -45,6 +45,7 @@ struct SubaruCompanionApp: App {
             if phase == .active {
                 NotificationManager.shared.clearBadge()
                 VehicleMonitor.shared.startLiveActivityIfNeeded()
+                Task { await FrostCheck.runIfDue() }
             }
         }
     }
