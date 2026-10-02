@@ -55,11 +55,13 @@ enum TripStore {
     private static let columns = "id, start, end_t, distance_km, fuel_l, max_speed, idle_s, idle_fuel_l, tag, cost"
 
     static func all() -> [Trip] {
-        db.query("SELECT \(columns) FROM trips WHERE end_t IS NOT NULL ORDER BY start DESC", map: map)
+        db.query("SELECT \(columns) FROM trips WHERE end_t IS NOT NULL AND car_id = ? ORDER BY start DESC",
+                 [CarStore.activeId], map: map)
     }
 
     static func open(startId: Int) -> Trip? {
-        db.query("SELECT \(columns) FROM trips WHERE end_t IS NULL AND start_id = ? LIMIT 1", [startId], map: map).first
+        db.query("SELECT \(columns) FROM trips WHERE end_t IS NULL AND start_id = ? AND car_id = ? LIMIT 1",
+                 [startId, CarStore.activeId], map: map).first
     }
 
     static func points(_ tripId: Int) -> [CLLocationCoordinate2D] {
@@ -98,15 +100,15 @@ enum TripStore {
     }
 
     static func latestParking() -> ParkingSpot? {
-        db.query("SELECT date, lat, lon FROM parking ORDER BY date DESC LIMIT 1") {
+        db.query("SELECT date, lat, lon FROM parking WHERE car_id = ? ORDER BY date DESC LIMIT 1", [CarStore.activeId]) {
             ParkingSpot(date: Date(timeIntervalSince1970: $0.double(0)),
                         coordinate: CLLocationCoordinate2D(latitude: $0.double(1), longitude: $0.double(2)))
         }.first
     }
 
     static func saveParking(_ loc: CLLocation) {
-        db.execute("INSERT INTO parking(date, lat, lon) VALUES(?,?,?)",
-                   [Date().timeIntervalSince1970, loc.coordinate.latitude, loc.coordinate.longitude])
+        db.execute("INSERT INTO parking(date, lat, lon, car_id) VALUES(?,?,?,?)",
+                   [Date().timeIntervalSince1970, loc.coordinate.latitude, loc.coordinate.longitude, CarStore.activeId])
     }
 }
 
@@ -126,8 +128,8 @@ final class TripRecorder {
         } else {
             let now = Date()
             let id = db.execute(
-                "INSERT INTO trips(start, distance_km, max_speed, start_odo, start_id) VALUES(?,0,0,?,?)",
-                [now.timeIntervalSince1970, odometer, startId])
+                "INSERT INTO trips(start, distance_km, max_speed, start_odo, start_id, car_id) VALUES(?,0,0,?,?,?)",
+                [now.timeIntervalSince1970, odometer, startId, CarStore.activeId])
             active = Trip(id: id, start: now, end: nil, distanceKm: 0, fuelL: nil, maxSpeed: 0)
         }
         location.startTracking()

@@ -317,6 +317,7 @@ struct ServiceDoneSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var km = ""
     @State private var date = Date()
+    @State private var interval = ""
 
     var body: some View {
         NavigationStack {
@@ -333,6 +334,17 @@ struct ServiceDoneSheet: View {
                     }
                     DatePicker(tr("Dátum", "Date"), selection: $date, in: ...Date(), displayedComponents: .date)
                 }
+                Section(tr("Csereperiódus", "Interval")) {
+                    HStack {
+                        Text(tr("Ennyi km-enként", "Every"))
+                        Spacer()
+                        TextField("0", text: $interval)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .font(Theme.number(17))
+                        Text("km").foregroundStyle(Theme.text2)
+                    }
+                }
             }
             .navigationTitle(item.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -341,6 +353,9 @@ struct ServiceDoneSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(tr("Mentés", "Save")) {
                         guard let v = Double(km) else { return }
+                        if let i = Double(interval), i >= 1000, i != item.intervalKm {
+                            ServiceStore.setInterval(item.id, km: i)
+                        }
                         ServiceStore.markDone(item.id, km: v, date: date)
                         Haptics.success()
                         onSave()
@@ -349,7 +364,10 @@ struct ServiceDoneSheet: View {
                     .disabled(Double(km) == nil)
                 }
             }
-            .onAppear { if settings.odometerSet { km = String(Int(settings.odometerKm)) } }
+            .onAppear {
+                if settings.odometerSet { km = String(Int(settings.odometerKm)) }
+                interval = String(Int(item.intervalKm))
+            }
         }
     }
 }

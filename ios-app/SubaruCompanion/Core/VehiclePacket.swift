@@ -38,6 +38,9 @@ struct VehiclePacket: Equatable {
     var distMilKm: Double?
     var timeMilMin: Double?
     var timeClearMin: Double?
+    /// Üzemanyag típus (PID 0x51) és a motor által jelentett fogyasztás l/h (PID 0x5E), ha az autó tudja
+    var fuelType: Int?
+    var fuelRate: Double?
 
     struct FreezeFrame: Decodable, Equatable {
         var dtc: String?
@@ -72,11 +75,17 @@ struct VehiclePacket: Equatable {
         case timeMilMin = "time_mil_min"
         case timeClearMin = "time_clear_min"
         case sleepH = "sleep_h"
+        case fuelType = "fuel_type"
+        case fuelRate = "fuel_rate"
     }
 
-    /// Pillanatnyi fogyasztás l/óra a MAF-ból (benzin: AFR 14.7, sűrűség 745 g/l).
+    /// Pillanatnyi fogyasztás l/óra. Ha a motor maga jelenti, azt használjuk; különben benzinesnél
+    /// a MAF-ból számolunk (AFR 14,7, sűrűség 745 g/l). Dízelnél a keverék arány folyton változik,
+    /// ezért ott MAF-ból nem lehet megbízhatóan számolni.
     var fuelRateLph: Double? {
-        guard let maf, engineRunning else { return nil }
+        guard engineRunning else { return nil }
+        if let fuelRate { return fuelRate }
+        guard let maf, AppSettings.shared.fuelType == .petrol else { return nil }
         return maf * 3600 / (14.7 * 745)
     }
 
@@ -123,6 +132,8 @@ extension VehiclePacket: Decodable {
         distMilKm = opt(.distMilKm)
         timeMilMin = opt(.timeMilMin)
         timeClearMin = opt(.timeClearMin)
+        fuelType = opt(.fuelType)
+        fuelRate = opt(.fuelRate)
     }
 }
 

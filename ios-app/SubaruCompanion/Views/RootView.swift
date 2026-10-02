@@ -43,7 +43,7 @@ struct RootView: View {
         }
         .tint(Theme.accent)
         .screenBackground()
-        .id(settings.language)  // nyelvváltáskor minden felirat frissül
+        .id("\(settings.language.rawValue)-\(settings.activeCarId)")  // nyelv- vagy autóváltáskor minden frissül
         .fullScreenCover(isPresented: Binding(get: { !settings.onboarded }, set: { _ in })) {
             OnboardingView()
                 .preferredColorScheme(.dark)

@@ -51,16 +51,15 @@ struct SettingsView: View {
                 BackupSection()
 
                 Section(tr("Jármű", "Vehicle")) {
-                    HStack {
-                        Text(tr("Név", "Name"))
-                        Spacer()
-                        TextField("", text: $settings.carName)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(Theme.text2)
+                    NavigationLink {
+                        GarageView()
+                    } label: {
+                        HStack {
+                            Text(tr("Garázs", "Garage"))
+                            Spacer()
+                            Text(settings.carName).foregroundStyle(Theme.text2)
+                        }
                     }
-                    numberRow(tr("Tank", "Tank size"), $settings.tankLiters, "l")
-                    numberRow(tr("Üzemi hűtővíz hőfok", "Operating temp"), $settings.warmTemp, "°C")
-                    numberRow(tr("Fordulatszám-határ", "Redline"), $settings.redline, "rpm")
                     row("VIN", settings.vin ?? "—")
                     row(tr("Kapcsolat", "Connection"), connectionText)
                     if let src = monitor.packet?.voltageSrc {
@@ -94,19 +93,6 @@ struct SettingsView: View {
             .onAppear {
                 if settings.odometerSet { odometerText = String(Int(settings.odometerKm)) }
             }
-        }
-    }
-
-    private func numberRow(_ label: String, _ value: Binding<Double>, _ unit: String) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            TextField("0", value: value, format: .number)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 80)
-                .foregroundStyle(Theme.text2)
-            Text(unit).foregroundStyle(Theme.text3)
         }
     }
 

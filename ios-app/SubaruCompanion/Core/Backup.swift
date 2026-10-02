@@ -3,8 +3,8 @@ import Foundation
 /// Teljes adatmentés egyetlen JSON fájlba, és visszaállítás belőle.
 /// A fájl a telefonon marad, hacsak a felhasználó maga el nem küldi valahova.
 enum Backup {
-    static let tables = ["trips", "trip_points", "fills", "parking", "voltage_log", "dtc_log",
-                         "service", "events", "battery_health", "reminders"]
+    static let tables = ["cars", "trips", "trip_points", "fills", "parking", "voltage_log", "events",
+                         "battery_health", "service_plan", "service_done", "reminder_dates", "dtc_hist"]
 
     enum RestoreError: Error { case unreadable, wrongFormat }
 
@@ -91,8 +91,9 @@ enum Backup {
             for key in AppSettings.backupKeys {
                 if let v = settings[key] { UserDefaults.standard.set(v, forKey: key) }
             }
-            AppSettings.shared.load()
         }
+        AppSettings.shared.load()
+        CarStore.adoptOrphans()  // régi, autó nélküli mentésből jött sorok
         return count
     }
 }

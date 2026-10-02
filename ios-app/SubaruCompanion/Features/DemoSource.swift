@@ -57,6 +57,7 @@ final class DemoSource {
         p.fuelLevel = 68
         p.intakeTemp = 22
         p.maf = maf
+        p.fuelRate = maf * 3600 / (14.7 * 745)
         p.faultCodes = t > 45 ? ["P0420"] : []
         p.vin = "JF1GR7DEMO0000000"
         p.mon = [0x82, 0x07, 0xE5, 0x20]     // MIL ég, 2 kód, katalizátor-teszt még nem futott le

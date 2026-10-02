@@ -61,6 +61,14 @@ final class Database {
         execute("ALTER TABLE trips ADD COLUMN cost REAL")
         execute("ALTER TABLE dtc_log ADD COLUMN snap TEXT")
         execute("CREATE TABLE IF NOT EXISTS reminders(id TEXT PRIMARY KEY, date REAL)")
+
+        let version = query("PRAGMA user_version") { $0.int(0) }.first ?? 0
+        if version < 2 {
+            execute("BEGIN")
+            migrateToGarage()
+            execute("PRAGMA user_version = 2")
+            execute("COMMIT")
+        }
     }
 
     @discardableResult

@@ -139,7 +139,7 @@ final class VehicleMonitor: ObservableObject {
 
         // Sorrend: előbb az indítási ciklus (ez nullázza a bemelegedés állapotát), utána a bemelegedés.
         if !demo {
-            if let vin = p.vin, vin != settings.vin { settings.vin = vin }
+            if let vin = p.vin, vin.count == 17, vin != settings.vin { identifyCar(vin: vin, fuelCode: p.fuelType) }
             updateOdometer(p, dt: dt)
             updateEngineCycle(p, now: now)
         }
@@ -210,7 +210,8 @@ final class VehicleMonitor: ObservableObject {
         let d = UserDefaults.standard
         let previous = d.double(forKey: "lastChargeAvg")
         d.set(avg, forKey: "lastChargeAvg")
-        db.execute("INSERT INTO events(t, kind, value) VALUES(?,?,?)", [Date().timeIntervalSince1970, "charge_avg", avg])
+        db.execute("INSERT INTO events(t, kind, value, car_id) VALUES(?,?,?,?)",
+                   [Date().timeIntervalSince1970, "charge_avg", avg, CarStore.activeId])
 
         guard settings.featAlternator, avg < 13.5, previous > 0, previous < 13.5 else { return }
         let now = Date().timeIntervalSince1970
@@ -260,6 +261,56 @@ final class VehicleMonitor: ObservableObject {
         if age > 90, recorder.active != nil { endTrip() }
     }
 
+    // MARK: - Garázs
+
+    /// VIN alapján kiválasztja az autót. Ismeretlen VIN-nél egy még VIN nélküli profilhoz rendeli
+    /// (az üzemanyag típusa alapján), vagy új profilt hoz létre.
+    private func identifyCar(vin: String, fuelCode: Int?) {
+        if let known = CarStore.find(vin: vin) {
+            switchCar(to: known.id, announce: true)
+            return
+        }
+        let fuel = fuelCode.flatMap(FuelType.init(obdCode:))
+        let free = CarStore.all().filter { $0.vin == nil && (fuel == nil || $0.fuel == fuel) }
+        if let target = free.first(where: { $0.id == settings.activeCarId }) ?? free.first {
+            switchCar(to: target.id, announce: true)
+            settings.vin = vin
+            return
+        }
+        let template = fuel == .diesel ? CarTemplate.diesel : CarTemplate.petrol
+        let id = CarStore.create(from: template, name: tr("Új autó", "New car"), vin: vin)
+        switchCar(to: id, announce: false)
+        notify.send(key: "newCar", title: tr("🚗 Új autó", "🚗 New car"),
+                    body: tr("Ismeretlen autóhoz csatlakoztál. Add meg a nevét és a km óra állását a Garázsban.",
+                             "You connected to an unknown car. Set its name and odometer in the Garage."))
+    }
+
+    /// Átvált egy másik autóra: a folyamatban lévő út lezárul, minden autófüggő állapot újraindul.
+    func switchCar(to id: Int, announce: Bool) {
+        guard id != settings.activeCarId else { return }
+        if recorder.active != nil { endTrip() }
+        settings.activate(id)
+
+        parking = TripStore.latestParking()
+        refreshAverages()
+        lastCodes = nil
+        coolantSamples.removeAll()
+        warmUp = WarmUpState()
+        pendingKm = 0
+        rangeKm = nil
+        chargeSum = 0
+        chargeCount = 0
+        normCoolant = settings.warmTemp + 2
+        lastStopFuel = -1
+        dismissSuggestedFill()
+        dataVersion += 1
+
+        if announce {
+            notify.send(key: "carSwitch", title: settings.carName,
+                        body: tr("Csatlakozva ehhez az autóhoz.", "Connected to this car."), throttle: 60)
+        }
+    }
+
     // MARK: - Kilométer
 
     private func updateOdometer(_ p: VehiclePacket, dt: TimeInterval) {
@@ -275,7 +326,7 @@ final class VehicleMonitor: ObservableObject {
         }
         if Date().timeIntervalSince(lastServiceCheck) > 3600 {
             lastServiceCheck = Date()
-            ServiceStore.checkAndNotify(odometer: settings.odometerKm)
+            ServiceStore.checkAndNotify()
         }
     }
 
@@ -294,8 +345,8 @@ final class VehicleMonitor: ObservableObject {
                 let cold = (p.coolantTemp ?? 99) < CarSpec.coldStartTemp
                 warmUp = WarmUpState(coldStart: cold, startTemp: p.coolantTemp)
                 if cold, let t = p.coolantTemp {
-                    db.execute("INSERT INTO events(t, kind, value) VALUES(?,?,?)",
-                               [now.timeIntervalSince1970, "cold_start", t])
+                    db.execute("INSERT INTO events(t, kind, value, car_id) VALUES(?,?,?,?)",
+                               [now.timeIntervalSince1970, "cold_start", t, CarStore.activeId])
                 }
                 // Már melegen indult: nem kell értesítés erre a ciklusra.
                 if (p.coolantTemp ?? 0) >= CarSpec.warmTemp { warmNotifiedStartId = p.startId }
@@ -474,8 +525,8 @@ final class VehicleMonitor: ObservableObject {
     private func logVoltage(_ v: Double?, event: String) {
         guard let v else { return }
         lastVoltageLog = Date()
-        db.execute("INSERT INTO voltage_log(t, voltage, event) VALUES(?,?,?)",
-                   [Date().timeIntervalSince1970, v, event])
+        db.execute("INSERT INTO voltage_log(t, voltage, event, car_id) VALUES(?,?,?,?)",
+                   [Date().timeIntervalSince1970, v, event, CarStore.activeId])
         db.execute("DELETE FROM voltage_log WHERE t < ?", [Date().timeIntervalSince1970 - 90 * 86400])
         dataVersion += 1
     }
@@ -526,8 +577,8 @@ final class VehicleMonitor: ObservableObject {
     // MARK: - Lekérdezések a nézeteknek
 
     func voltageLog(days: Int) -> [(t: Date, v: Double)] {
-        db.query("SELECT t, voltage FROM voltage_log WHERE t >= ? ORDER BY t",
-                 [Date().timeIntervalSince1970 - Double(days) * 86400]) {
+        db.query("SELECT t, voltage FROM voltage_log WHERE t >= ? AND car_id = ? ORDER BY t",
+                 [Date().timeIntervalSince1970 - Double(days) * 86400, CarStore.activeId]) {
             (Date(timeIntervalSince1970: $0.double(0)), $0.double(1))
         }
     }

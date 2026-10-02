@@ -65,6 +65,15 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
 
+    /// Az adott előtagú függő értesítések törlése, utána `then` fut (a főszálon).
+    func cancel(prefix: String, then: @escaping () -> Void) {
+        center.getPendingNotificationRequests { requests in
+            let ids = requests.map(\.identifier).filter { $0.hasPrefix(prefix) }
+            self.center.removePendingNotificationRequests(withIdentifiers: ids)
+            DispatchQueue.main.async(execute: then)
+        }
+    }
+
     func cancel(ids: [String]) {
         center.removePendingNotificationRequests(withIdentifiers: ids)
     }

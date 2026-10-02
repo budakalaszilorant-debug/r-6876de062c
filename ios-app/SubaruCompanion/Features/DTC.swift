@@ -81,7 +81,7 @@ enum DTC {
 
     static func saveSnapshot(_ code: String, _ snap: DTCSnapshot) {
         guard let data = try? JSONEncoder().encode(snap), let json = String(data: data, encoding: .utf8) else { return }
-        Database.shared.execute("UPDATE dtc_log SET snap = ? WHERE code = ?", [json, code])
+        Database.shared.execute("UPDATE dtc_hist SET snap = ? WHERE code = ? AND car_id = ?", [json, code, CarStore.activeId])
     }
 
     static func describe(_ code: String) -> String {
@@ -95,7 +95,8 @@ enum DTC {
     }
 
     static func history() -> [DTCRecord] {
-        Database.shared.query("SELECT code, first_seen, last_seen, active, snap FROM dtc_log ORDER BY active DESC, last_seen DESC") {
+        Database.shared.query("SELECT code, first_seen, last_seen, active, snap FROM dtc_hist WHERE car_id = ? ORDER BY active DESC, last_seen DESC",
+                              [CarStore.activeId]) {
             DTCRecord(code: $0.string(0), firstSeen: Date(timeIntervalSince1970: $0.double(1)),
                       lastSeen: Date(timeIntervalSince1970: $0.double(2)), active: $0.int(3) == 1,
                       snapshot: $0.string(4).data(using: .utf8).flatMap { try? JSONDecoder().decode(DTCSnapshot.self, from: $0) })
@@ -106,17 +107,18 @@ enum DTC {
     static func update(active codes: [String]) -> [String] {
         let db = Database.shared
         let now = Date().timeIntervalSince1970
-        let previouslyActive = Set(db.query("SELECT code FROM dtc_log WHERE active = 1") { $0.string(0) })
+        let car = CarStore.activeId
+        let previouslyActive = Set(db.query("SELECT code FROM dtc_hist WHERE active = 1 AND car_id = ?", [car]) { $0.string(0) })
         let current = Set(codes)
 
         for code in current {
             db.execute("""
-            INSERT INTO dtc_log(code, first_seen, last_seen, active) VALUES(?,?,?,1)
-            ON CONFLICT(code) DO UPDATE SET last_seen = excluded.last_seen, active = 1
-            """, [code, now, now])
+            INSERT INTO dtc_hist(car_id, code, first_seen, last_seen, active) VALUES(?,?,?,?,1)
+            ON CONFLICT(car_id, code) DO UPDATE SET last_seen = excluded.last_seen, active = 1
+            """, [car, code, now, now])
         }
         for code in previouslyActive.subtracting(current) {
-            db.execute("UPDATE dtc_log SET active = 0 WHERE code = ?", [code])
+            db.execute("UPDATE dtc_hist SET active = 0 WHERE code = ? AND car_id = ?", [code, car])
         }
         return Array(current.subtracting(previouslyActive)).sorted()
     }

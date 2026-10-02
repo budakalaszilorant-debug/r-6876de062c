@@ -35,17 +35,19 @@ final class AppSettings: ObservableObject {
     // Üzemanyag ár (Ft/l), a töltés űrlap előtöltéséhez és az utak költségéhez
     @Published var lastFuelPrice: Double = 620 { didSet { d.set(lastFuelPrice, forKey: "fuelPrice") } }
 
+    // MARK: Az aktív autó adatai (a `cars` táblában tárolva, autónként külön)
+
+    @Published private(set) var activeCarId = 0
+    @Published var carName = "" { didSet { saveCar() } }
+    @Published var fuelType: FuelType = .petrol { didSet { saveCar() } }
+    @Published var tankLiters = 50.0 { didSet { saveCar() } }
+    @Published var warmTemp = 88.0 { didSet { saveCar() } }
+    @Published var redline = 6000.0 { didSet { saveCar() } }
     /// Kilométeróra: kezdőérték (kézzel) + OBD sebességből integrált táv.
-    @Published var odometerKm: Double = 0 { didSet { d.set(odometerKm, forKey: "odo") } }
-    @Published var odometerSet = false { didSet { d.set(odometerSet, forKey: "odoSet") } }
-
-    @Published var vin: String? { didSet { d.set(vin, forKey: "vin") } }
-
-    // Az autó adatai (a Beállításokban szerkeszthetők)
-    @Published var carName = "Subaru Impreza RS" { didSet { d.set(carName, forKey: "carName") } }
-    @Published var tankLiters = 60.0 { didSet { d.set(tankLiters, forKey: "tankLiters") } }
-    @Published var warmTemp = 88.0 { didSet { d.set(warmTemp, forKey: "warmTemp") } }
-    @Published var redline = 6500.0 { didSet { d.set(redline, forKey: "redline") } }
+    @Published var odometerKm: Double = 0 { didSet { saveCar() } }
+    @Published var odometerSet = false { didSet { saveCar() } }
+    @Published var vin: String? { didSet { saveCar() } }
+    private var loadingCar = false
 
     // Kapcsolható funkciók
     @Published var featParkingTimer = true { didSet { d.set(featParkingTimer, forKey: "featParkingTimer") } }
@@ -73,17 +75,16 @@ final class AppSettings: ObservableObject {
     /// Első indítás beállítása megtörtént
     @Published var onboarded = false { didSet { d.set(onboarded, forKey: "onboarded") } }
 
-    /// Mentésbe kerülő beállítás kulcsok
+    /// Mentésbe kerülő beállítás kulcsok (az autók adatai az adatbázisban vannak)
     static let backupKeys = [
-        "carName", "tankLiters", "warmTemp", "redline", "lang", "fuelPrice", "odo", "odoSet", "vin", "onboarded", "dashOrder", "dashHidden",
+        "activeCarId", "lang", "fuelPrice", "onboarded", "dashOrder", "dashHidden",
         "featParkingTimer", "featLeftRunning", "featMonthly", "featRange", "featBatteryHealth", "featIdle",
         "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featDrain", "featTripCost"
     ]
 
     private init() {
         d.register(defaults: [
-            "carName": "Subaru Impreza RS", "tankLiters": 60.0, "warmTemp": 88.0, "redline": 6500.0,
-            "lang": "hu", "fuelPrice": 620.0, "odo": 0.0, "odoSet": false,
+            "lang": "hu", "fuelPrice": 620.0,
             "featParkingTimer": true, "featLeftRunning": true, "featMonthly": true,
             "featRange": true, "featBatteryHealth": true, "featIdle": true,
             "featLiveActivity": true, "featAutoFill": true, "featOverheatEarly": true,
@@ -94,15 +95,9 @@ final class AppSettings: ObservableObject {
 
     /// Beolvasás a tárolóból (indításkor és mentés visszaállítása után).
     func load() {
+        _ = Database.shared  // a migráció előbb lefusson, mert az állítja be az első autót
         language = AppLanguage(rawValue: d.string(forKey: "lang") ?? "hu") ?? .hu
         lastFuelPrice = d.double(forKey: "fuelPrice")
-        odometerKm = d.double(forKey: "odo")
-        odometerSet = d.bool(forKey: "odoSet")
-        vin = d.string(forKey: "vin")
-        carName = d.string(forKey: "carName") ?? "Subaru Impreza RS"
-        tankLiters = d.double(forKey: "tankLiters")
-        warmTemp = d.double(forKey: "warmTemp")
-        redline = d.double(forKey: "redline")
         onboarded = d.bool(forKey: "onboarded")
         featParkingTimer = d.bool(forKey: "featParkingTimer")
         featLeftRunning = d.bool(forKey: "featLeftRunning")
@@ -122,5 +117,32 @@ final class AppSettings: ObservableObject {
         for s in DashSection.allCases where !order.contains(s) { order.append(s) }  // új rész egy frissítés után
         dashOrder = order
         dashHidden = hidden
+
+        activate(d.integer(forKey: "activeCarId"))
+    }
+
+    /// Átvált a megadott autóra (ha nem létezik, az elsőre).
+    func activate(_ id: Int) {
+        guard let car = CarStore.get(id) ?? CarStore.all().first else { return }
+        loadingCar = true
+        activeCarId = car.id
+        d.set(car.id, forKey: "activeCarId")
+        carName = car.name
+        fuelType = car.fuel
+        tankLiters = car.tankL
+        warmTemp = car.warmTemp
+        redline = car.redline
+        odometerKm = car.odometerKm
+        odometerSet = car.odometerSet
+        vin = car.vin
+        loadingCar = false
+    }
+
+    /// Az aktív autó adatai visszaíródnak a `cars` táblába.
+    private func saveCar() {
+        guard !loadingCar, activeCarId > 0 else { return }
+        CarStore.save(CarProfile(id: activeCarId, name: carName, vin: vin, fuel: fuelType,
+                                 tankL: tankLiters, warmTemp: warmTemp, redline: redline,
+                                 odometerKm: odometerKm, odometerSet: odometerSet, template: ""))
     }
 }

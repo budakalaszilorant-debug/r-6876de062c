@@ -76,14 +76,14 @@ struct MonthlySummary {
     static func compute(for date: Date) -> MonthlySummary {
         let start = monthStart(date)
         let end = Calendar.current.date(byAdding: .month, value: 1, to: start) ?? start
-        let range: [Any?] = [start.timeIntervalSince1970, end.timeIntervalSince1970]
+        let range: [Any?] = [start.timeIntervalSince1970, end.timeIntervalSince1970, CarStore.activeId]
         var s = MonthlySummary(month: start)
 
         let db = Database.shared
         _ = db.query("""
             SELECT COUNT(*), SUM(distance_km), SUM(end_t - start), SUM(idle_s), SUM(idle_fuel_l), SUM(fuel_l),
                    SUM(CASE WHEN tag = 'work' THEN distance_km ELSE 0 END), SUM(cost)
-            FROM trips WHERE end_t IS NOT NULL AND start >= ? AND start < ?
+            FROM trips WHERE end_t IS NOT NULL AND start >= ? AND start < ? AND car_id = ?
             """, range) { r in
             s.trips = r.int(0)
             s.km = r.double(1)
@@ -94,7 +94,7 @@ struct MonthlySummary {
             s.workKm = r.double(6)
             s.tripCost = r.double(7)
         }
-        _ = db.query("SELECT SUM(cost), SUM(liters) FROM fills WHERE date >= ? AND date < ?", range) { r in
+        _ = db.query("SELECT SUM(cost), SUM(liters) FROM fills WHERE date >= ? AND date < ? AND car_id = ?", range) { r in
             s.cost = r.double(0)
             s.liters = r.double(1)
         }
@@ -200,7 +200,8 @@ enum BatteryHealth {
 
     static func recent(limit: Int = 60) -> [BatterySample] {
         Database.shared.query(
-            "SELECT rowid, t, rest_v, crank_v, charge_v FROM battery_health ORDER BY t DESC LIMIT ?", [limit]) {
+            "SELECT rowid, t, rest_v, crank_v, charge_v FROM battery_health WHERE car_id = ? ORDER BY t DESC LIMIT ?",
+            [CarStore.activeId, limit]) {
             BatterySample(id: $0.int(0), date: Date(timeIntervalSince1970: $0.double(1)),
                           restV: $0.optDouble(2), crankV: $0.optDouble(3), chargeV: $0.optDouble(4))
         }.reversed()
@@ -210,8 +211,8 @@ enum BatteryHealth {
     static func record(startId: Int, rest: Double?, crank: Double?, charge: Double?) {
         guard rest != nil || crank != nil else { return }
         Database.shared.execute(
-            "INSERT INTO battery_health(t, start_id, rest_v, crank_v, charge_v) VALUES(?,?,?,?,?)",
-            [Date().timeIntervalSince1970, startId, rest, crank, charge])
+            "INSERT INTO battery_health(t, start_id, rest_v, crank_v, charge_v, car_id) VALUES(?,?,?,?,?,?)",
+            [Date().timeIntervalSince1970, startId, rest, crank, charge, CarStore.activeId])
 
         guard grade(rest: rest, crank: crank) == .weak else { return }
         let key = "battWeakNotified"

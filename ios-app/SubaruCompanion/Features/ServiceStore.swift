@@ -31,29 +31,22 @@ struct ServiceStatus: Identifiable {
 }
 
 enum ServiceStore {
-    /// CarSpec 2.0 boxer szervizterv
-    static let items: [ServiceItem] = [
-        .init(id: "oil", hu: "Motorolaj", en: "Engine oil", intervalKm: 10_000),
-        .init(id: "oil_filter", hu: "Olajszűrő", en: "Oil filter", intervalKm: 10_000),
-        .init(id: "cabin_filter", hu: "Pollenszűrő", en: "Cabin air filter", intervalKm: 15_000),
-        .init(id: "air_filter", hu: "Levegőszűrő", en: "Air filter", intervalKm: 20_000),
-        .init(id: "fuel_filter", hu: "Üzemanyagszűrő", en: "Fuel filter", intervalKm: 30_000),
-        .init(id: "spark", hu: "Gyújtógyertyák (NGK irídium)", en: "Spark plugs (NGK iridium)", intervalKm: 30_000),
-        .init(id: "coolant", hu: "Hűtőfolyadék", en: "Coolant flush", intervalKm: 40_000),
-        .init(id: "brake_fluid", hu: "Fékfolyadék", en: "Brake fluid", intervalKm: 40_000),
-        .init(id: "gearbox", hu: "Váltóolaj", en: "Gearbox oil", intervalKm: 40_000),
-        .init(id: "diff", hu: "Differenciálmű olaj (AWD)", en: "AWD diff fluid", intervalKm: 40_000),
-        .init(id: "timing", hu: "Vezérműszíj", en: "Timing belt", intervalKm: 100_000, critical: true),
-    ]
-
     private static var db: Database { .shared }
 
-    static func statuses(odometer: Double) -> [ServiceStatus] {
-        let rows = db.query("SELECT item, last_km, last_date FROM service") {
+    /// Az autó szervizterve (a sablonból jött, tételenként szerkeszthető).
+    static func plan(car: Int = CarStore.activeId) -> [ServiceItem] {
+        db.query("SELECT item, hu, en, interval_km, critical FROM service_plan WHERE car_id = ? ORDER BY sort, item", [car]) {
+            ServiceItem(id: $0.string(0), hu: $0.string(1), en: $0.string(2), intervalKm: $0.double(3),
+                        critical: $0.int(4) == 1)
+        }
+    }
+
+    static func statuses(odometer: Double, car: Int = CarStore.activeId) -> [ServiceStatus] {
+        let rows = db.query("SELECT item, last_km, last_date FROM service_done WHERE car_id = ?", [car]) {
             ($0.string(0), $0.double(1), $0.double(2))
         }
-        let byId = Dictionary(uniqueKeysWithValues: rows.map { ($0.0, ($0.1, $0.2)) })
-        return items.map { item in
+        let byId = Dictionary(rows.map { ($0.0, ($0.1, $0.2)) }, uniquingKeysWith: { a, _ in a })
+        return plan(car: car).map { item in
             guard let (km, date) = byId[item.id] else {
                 return ServiceStatus(item: item, lastKm: nil, lastDate: nil, remainingKm: nil)
             }
@@ -63,42 +56,50 @@ enum ServiceStore {
     }
 
     static func markDone(_ id: String, km: Double, date: Date = Date()) {
-        db.execute("INSERT OR REPLACE INTO service(item, last_km, last_date) VALUES(?,?,?)",
-                   [id, km, date.timeIntervalSince1970])
-        UserDefaults.standard.removeObject(forKey: "svcNotified-\(id)")
+        let car = CarStore.activeId
+        db.execute("INSERT OR REPLACE INTO service_done(car_id, item, last_km, last_date) VALUES(?,?,?,?)",
+                   [car, id, km, date.timeIntervalSince1970])
+        UserDefaults.standard.removeObject(forKey: "svcNotified-\(car)-\(id)")
     }
 
-    /// Naponta legfeljebb egyszer értesít tételenként.
-    static func checkAndNotify(odometer: Double) {
-        guard odometer > 0 else { return }
+    static func setInterval(_ id: String, km: Double) {
+        db.execute("UPDATE service_plan SET interval_km = ? WHERE car_id = ? AND item = ?", [km, CarStore.activeId, id])
+    }
+
+    /// Minden autóra, naponta legfeljebb egyszer értesít tételenként.
+    static func checkAndNotify() {
+        let cars = CarStore.all()
         let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
         let fmt = NumberFormatter()
         fmt.numberStyle = .decimal
         fmt.maximumFractionDigits = 0
 
-        for s in statuses(odometer: odometer) {
-            guard let r = s.remainingKm, s.level == .soon || s.level == .overdue else { continue }
-            let key = "svcNotified-\(s.item.id)"
-            guard UserDefaults.standard.double(forKey: key) < today else { continue }
-            UserDefaults.standard.set(today, forKey: key)
+        for car in cars where car.odometerSet && car.odometerKm > 0 {
+            let who = cars.count > 1 ? "\(car.name): " : ""
+            for s in statuses(odometer: car.odometerKm, car: car.id) {
+                guard let r = s.remainingKm, s.level == .soon || s.level == .overdue else { continue }
+                let key = "svcNotified-\(car.id)-\(s.item.id)"
+                guard UserDefaults.standard.double(forKey: key) < today else { continue }
+                UserDefaults.standard.set(today, forKey: key)
 
-            let km = fmt.string(from: NSNumber(value: abs(r))) ?? "\(Int(abs(r)))"
-            if s.item.critical && r >= 0 {
-                NotificationManager.shared.send(
-                    key: key, title: tr("🚨 KRITIKUS — Vezérműszíj", "🚨 CRITICAL — Timing belt"),
-                    body: tr("Vezérműszíj csere \(km) km múlva! A szíj szakadása motorkárt okoz.",
-                             "Timing belt due in \(km) km! A snapped belt destroys the engine."),
-                    level: .critical)
-            } else if r < 0 {
-                NotificationManager.shared.send(
-                    key: key, title: tr("🔴 Szerviz lejárt", "🔴 Service overdue"),
-                    body: tr("\(s.item.hu): \(km) km-rel ezelőtt kellett volna",
-                             "\(s.item.en): overdue by \(km) km"),
-                    level: s.item.critical ? .critical : .normal)
-            } else {
-                NotificationManager.shared.send(
-                    key: key, title: tr("🔧 Szerviz közeleg", "🔧 Service due soon"),
-                    body: tr("\(s.item.hu) \(km) km múlva esedékes", "\(s.item.en) due in \(km) km"))
+                let km = fmt.string(from: NSNumber(value: abs(r))) ?? "\(Int(abs(r)))"
+                if s.item.critical && r >= 0 {
+                    NotificationManager.shared.send(
+                        key: key, title: "🚨 " + who + tr("KRITIKUS — \(s.item.hu)", "CRITICAL — \(s.item.en)"),
+                        body: tr("\(s.item.hu) csere \(km) km múlva! Ha elszakad, súlyos motorkárt okoz.",
+                                 "\(s.item.en) due in \(km) km! If it fails it can wreck the engine."),
+                        level: .critical)
+                } else if r < 0 {
+                    NotificationManager.shared.send(
+                        key: key, title: "🔴 " + who + tr("Szerviz lejárt", "Service overdue"),
+                        body: tr("\(s.item.hu): \(km) km-rel ezelőtt kellett volna",
+                                 "\(s.item.en): overdue by \(km) km"),
+                        level: s.item.critical ? .critical : .normal)
+                } else {
+                    NotificationManager.shared.send(
+                        key: key, title: "🔧 " + who + tr("Szerviz közeleg", "Service due soon"),
+                        body: tr("\(s.item.hu) \(km) km múlva esedékes", "\(s.item.en) due in \(km) km"))
+                }
             }
         }
     }
@@ -110,7 +111,7 @@ enum ServiceScheduler {
 
     static func registerBackgroundTask() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
-            ServiceStore.checkAndNotify(odometer: AppSettings.shared.odometerKm)
+            ServiceStore.checkAndNotify()
             MonthlySummary.notifyIfNewMonth()
             schedule()
             task.setTaskCompleted(success: true)

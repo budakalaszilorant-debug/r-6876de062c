@@ -146,7 +146,9 @@ struct RpmDial: View {
     let rpm: Double?
     let speed: Double?
 
-    private let maxRpm: Double = 7000
+    /// A skála a fordulatszám-határ fölötti első egész ezresig tart (dízel 5000, benzines 7000 körül).
+    private var maxRpm: Double { max(4000, ((CarSpec.redline + 500) / 1000).rounded(.up) * 1000) }
+    private var steps: Int { Int(maxRpm / 1000) }
     private let line: CGFloat = 14
 
     private var fraction: Double { min(1, max(0, (rpm ?? 0) / maxRpm)) }
@@ -164,11 +166,11 @@ struct RpmDial: View {
                     .animation(Theme.spring, value: rpm)
 
                 // Számozás ezres fordulatonként
-                ForEach(0..<8, id: \.self) { i in
-                    let angle = (135.0 + 270.0 * Double(i) / 7.0) * Double.pi / 180.0
+                ForEach(0...steps, id: \.self) { i in
+                    let angle = (135.0 + 270.0 * Double(i) / Double(steps)) * Double.pi / 180.0
                     Text("\(i)")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(i == 7 ? Theme.bad : Theme.text3)
+                        .foregroundStyle(Double(i) * 1000 >= CarSpec.redline ? Theme.bad : Theme.text3)
                         .position(x: CGFloat(Double(size) / 2 + cos(angle) * labelRadius),
                                   y: CGFloat(Double(size) / 2 + sin(angle) * labelRadius))
                 }
@@ -373,7 +375,7 @@ struct LandscapeDashboard: View {
         let p = monitor.isLive ? monitor.packet : nil
 
         HStack(spacing: 24) {
-            gauge(value: p?.rpm, range: 0...7000, text: Fmt.int(p?.rpm), unit: tr("ford/p", "rpm"),
+            gauge(value: p?.rpm, range: 0...max(4000, ((CarSpec.redline + 500) / 1000).rounded(.up) * 1000), text: Fmt.int(p?.rpm), unit: tr("ford/p", "rpm"),
                   tint: (p?.rpm ?? 0) > CarSpec.redline - 500 ? Theme.bad : Theme.accent)
 
             VStack(spacing: 14) {
