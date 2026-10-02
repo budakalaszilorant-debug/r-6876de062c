@@ -24,11 +24,15 @@ final class ParkingTimer: ObservableObject {
 
     var isRunning: Bool { (end ?? .distantPast) > Date() }
 
-    func start(minutes: Int) {
-        cancel()
+    func start(minutes: Int, carID: Int? = nil) {
+        let car = carID ?? CarStore.activeId
+        guard let profile = CarStore.get(car), minutes > 0 else { return }
+        let key = CarStore.key("parkTimerEnd", car: car)
+        let ids = [CarStore.key("parkTimer-warn", car: car), CarStore.key("parkTimer-end", car: car)]
+        NotificationManager.shared.cancel(ids: ids)
         let total = Double(minutes) * 60
         let finish = Date().addingTimeInterval(total)
-        end = finish
+        if car == CarStore.activeId { end = finish }
         UserDefaults.standard.set(finish.timeIntervalSince1970, forKey: key)
 
         // Előjelzés: 10 perccel a vége előtt, rövid időnél arányosan korábban.
@@ -36,12 +40,12 @@ final class ParkingTimer: ObservableObject {
         NotificationManager.shared.schedule(
             id: ids[0], after: total - Double(warn) * 60,
             title: tr("🅿️ Parkolás hamarosan lejár", "🅿️ Parking expires soon"),
-            body: tr("\(warn) perc van hátra.", "\(warn) minutes left."),
+            body: profile.name + ": " + tr("\(warn) perc van hátra.", "\(warn) minutes left."),
             level: .timeSensitive)
         NotificationManager.shared.schedule(
             id: ids[1], after: total,
             title: tr("🅿️ Parkolás lejárt", "🅿️ Parking expired"),
-            body: tr("A beállított parkolási idő letelt.", "Your parking time is up."),
+            body: profile.name + ": " + tr("A beállított parkolási idő letelt.", "Your parking time is up."),
             level: .timeSensitive)
     }
 

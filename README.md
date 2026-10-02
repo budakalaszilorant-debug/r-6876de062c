@@ -84,4 +84,3 @@ szerviztételek és lejáratok autónként külön tárolódnak.
 
 Ellenőrzések: `sh ios-app/Tests/Garage/run.sh` macOS alatt a tényleges tároló- és
 migrációs kódot ellenőrzi. A GitHub Actions ezen felül szimulátorra és telefonra is fordít.
-

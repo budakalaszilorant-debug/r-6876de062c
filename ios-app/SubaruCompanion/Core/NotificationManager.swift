@@ -107,8 +107,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         if action.hasPrefix("PARK_"), let minutes = Int(action.dropFirst(5)) {
             DispatchQueue.main.async {
                 let carId = response.notification.request.content.userInfo["carId"] as? Int
-                guard carId == nil || carId == CarStore.activeId else { return }
-                ParkingTimer.shared.start(minutes: minutes)
+                ParkingTimer.shared.start(minutes: minutes, carID: carId)
             }
         }
         completion()

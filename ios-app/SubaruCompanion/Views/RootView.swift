@@ -50,6 +50,9 @@ struct RootView: View {
         .tint(Theme.accent)
         .screenBackground()
         .id("\(settings.language.rawValue)-\(settings.activeCarId)")  // nyelv- vagy autóváltáskor minden frissül
+        .onChange(of: monitor.needsCarSelection) { needed in
+            if needed && settings.onboarded { showGarage = true }
+        }
         .sheet(isPresented: $showGarage) {
             NavigationStack {
                 GarageView().toolbar {

@@ -83,6 +83,8 @@ struct GarageView: View {
                     monitor.switchCar(to: other.id, announce: false)
                 }
                 CarStore.delete(car.id)
+                NotificationManager.shared.cancel(ids: [CarStore.key("parkTimer-warn", car: car.id),
+                                                       CarStore.key("parkTimer-end", car: car.id)])
                 Reminders.reschedule()
                 deleting = nil
                 reload()
