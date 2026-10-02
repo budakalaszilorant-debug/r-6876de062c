@@ -25,7 +25,7 @@ expect(cars.count == 2, "clean install has exactly two profiles")
 let fiesta = cars.first { $0.template == "ford_fiesta_14" }!
 let combo = cars.first { $0.template == "opel_combo_16cdti" }!
 expect(fiesta.fuel == .petrol && combo.fuel == .diesel, "correct fuel types")
-expect(CarStore.validVIN("WF0123456789012345"), "valid VIN")
+expect(CarStore.validVIN("WF012345678901234"), "valid VIN")
 expect(!CarStore.validVIN("WF0INVALID"), "invalid VIN")
 settings.activate(fiesta.id)
 settings.odometerKm = 123456

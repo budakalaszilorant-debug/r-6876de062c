@@ -8,3 +8,4 @@ ios-app/build.log
 
 # Egyedi sorozatszámokat tartalmaz, ne kerüljön fel sehova
 hackintosh/
+.local-checks/
