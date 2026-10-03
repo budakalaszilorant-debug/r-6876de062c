@@ -59,50 +59,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             | tee build.log | grep -E "error:|warning: unused|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" build.log
-      # Elindítja az appot a szimulátorban demo módban, és minden képernyőről képet készít.
-      - name: Képernyőképek
-        run: |
-          cd ios-app
-          APP=build/Build/Products/Debug-iphonesimulator/SubaruCompanion.app
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k in sorted(d, reverse=True) if 'iOS' in k for x in d[k] if x['name'].startswith('iPhone')))")
-          xcrun simctl boot "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
-          xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
-          xcrun simctl install "$UDID" "$APP"
-          mkdir -p shots
-          shot() {  # név, fül, alnézet, várakozás mp
-            xcrun simctl terminate "$UDID" hu.kocsi.subaru 2>/dev/null || true
-            xcrun simctl launch "$UDID" hu.kocsi.subaru -onboarded YES -uiDemo YES -uiTab "$2" -uiMode "$3"
-            sleep "$4"
-            xcrun simctl io "$UDID" screenshot "shots/$1.png"
-          }
-          shot 01-muszerfal 0 0 20
-          shot 02-g-ero 1 0 10
-          shot 03-utak 2 0 10
-          shot 04-tankolas 2 1 10
-          shot 05-bemelegedes 3 0 45
-          shot 06-akku 3 1 15
-          shot 07-szerviz 3 2 10
-          shot 08-hibakodok 3 3 55
-          shot 09-beallitasok 4 0 10
-          xcrun simctl terminate "$UDID" hu.kocsi.subaru 2>/dev/null || true
-          xcrun simctl launch "$UDID" hu.kocsi.subaru -onboarded YES -uiDemo YES -uiTab 4 -uiGarage YES
-          sleep 10
-          xcrun simctl io "$UDID" screenshot "shots/11-garazs.png"
-          xcrun simctl terminate "$UDID" hu.kocsi.subaru 2>/dev/null || true
-          xcrun simctl launch "$UDID" hu.kocsi.subaru -onboarded YES -uiDemo YES -uiTab 3 -uiMode 3 -uiHealth YES
-          sleep 55
-          xcrun simctl io "$UDID" screenshot "shots/10-atvilagitas.png"
-          xcrun simctl terminate "$UDID" hu.kocsi.subaru || true
-          xcrun simctl launch "$UDID" hu.kocsi.subaru -onboarded NO
-          sleep 8
-          xcrun simctl io "$UDID" screenshot "shots/00-elso-inditas.png"
-      - name: Képernyőképek feltöltése
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: kepernyokepek
-          path: ios-app/shots
       # Szimulátoros app csomag: böngészős iPhone szimulátorba (pl. appetize.io) feltölthető.
       - name: Szimulátoros app csomagolása
         run: cd ios-app/build/Build/Products/Debug-iphonesimulator && zip -qr "$GITHUB_WORKSPACE/SubaruCompanion-simulator.zip" SubaruCompanion.app
