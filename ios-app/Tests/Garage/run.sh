@@ -6,6 +6,7 @@ trap 'rm -rf "$OUT"' EXIT
 swiftc -D GARAGE_TESTS \
   SubaruCompanion/Core/Database.swift SubaruCompanion/Core/AppSettings.swift \
   SubaruCompanion/Core/Backup.swift SubaruCompanion/Core/VehiclePacket.swift \
+  SubaruCompanion/Core/CloudState.swift \
   SubaruCompanion/Features/Garage.swift SubaruCompanion/Features/FuelStore.swift \
   SubaruCompanion/Features/DTC.swift Tests/Garage/main.swift -o "$OUT/garage-tests"
 "$OUT/garage-tests"

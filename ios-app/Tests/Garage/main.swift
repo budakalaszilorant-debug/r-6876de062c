@@ -115,4 +115,32 @@ expect(db.query("SELECT COUNT(*) FROM reminder_dates") { $0.int(0) }.first == 1,
 expect(DTC.history().count == 1, "legacy JSON fault history")
 CarStore.delete(CarStore.activeId)
 expect(CarStore.all().count == 1, "last or active car cannot be deleted")
+// Cloud state regression: new phones, concurrent edits, offline retry and remote rollback.
+expect(CloudDecision.decide(linked: false, base: 0, baseHash: nil, localHash: "empty", remoteRevision: 5, remoteHash: "data") == .link, "new phone must not upload before link consent")
+expect(CloudDecision.decide(linked: true, base: 0, baseHash: nil, localHash: "a", remoteRevision: nil, remoteHash: nil) == .upload, "first linked upload")
+expect(CloudDecision.decide(linked: true, base: 2, baseHash: "a", localHash: "b", remoteRevision: 2, remoteHash: "a") == .upload, "offline local edit uploads")
+expect(CloudDecision.decide(linked: true, base: 2, baseHash: "a", localHash: "a", remoteRevision: 3, remoteHash: "b") == .download, "unchanged phone pulls remote edit")
+expect(CloudDecision.decide(linked: true, base: 2, baseHash: "a", localHash: "c", remoteRevision: 3, remoteHash: "b") == .conflict, "concurrent edits cannot overwrite")
+expect(CloudDecision.decide(linked: true, base: 2, baseHash: "a", localHash: "b", remoteRevision: 3, remoteHash: "b") == .unchanged, "lost upload response reconciles safely")
+expect(CloudDecision.decide(linked: true, base: 2, baseHash: "a", localHash: "a", remoteRevision: nil, remoteHash: nil) == .conflict, "missing cloud data is not overwritten automatically")
+expect(CloudDecision.decide(linked: true, base: 4, baseHash: "b", localHash: "b", remoteRevision: 2, remoteHash: "a") == .conflict, "server rollback cannot silently replace newer local data")
+let canonicalSource = Backup.makeData()!
+let firstHash = try CloudPayload.hash(canonicalSource)
+var generatedLater = try JSONSerialization.jsonObject(with: canonicalSource) as! [String: Any]
+generatedLater["created"] = 9999999999.0
+var changedSettings = generatedLater["settings"] as! [String: Any]
+changedSettings["activeCarId"] = 987
+changedSettings["onboarded"] = true
+generatedLater["settings"] = changedSettings
+let laterHash = try CloudPayload.hash(JSONSerialization.data(withJSONObject: generatedLater))
+expect(firstHash == laterHash, "timestamps and device selection do not trigger uploads")
+changedSettings["lang"] = "changed-language"
+generatedLater["settings"] = changedSettings
+let editedHash = try CloudPayload.hash(JSONSerialization.data(withJSONObject: generatedLater))
+expect(firstHash != editedHash, "actual setting edits do trigger uploads")
+let safety = try Backup.writeSafetyCopy()
+defer { try? FileManager.default.removeItem(at: safety) }
+let safetyData = try Data(contentsOf: safety)
+let safetyHash = try CloudPayload.hash(safetyData)
+expect(safetyHash == firstHash, "safety copy contains the complete pre-restore garage")
 print("Garage integration checks passed: \(checks)")

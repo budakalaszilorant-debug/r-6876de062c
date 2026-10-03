@@ -10,11 +10,16 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
+    SUPABASE_URL: ""
+    SUPABASE_PUBLISHABLE_KEY: ""
     # Google bejelentkezés (felhő mentés). A Google Cloud Console iOS OAuth kliens azonosítója;
     # üresen hagyva a felhő mentés ki van kapcsolva. A CI a GOOGLE_IOS_CLIENT_ID repo-változóból tölti.
     GOOGLE_CLIENT_ID: ""
     GOOGLE_REVERSED_CLIENT_ID: "com.googleusercontent.apps.not-configured"
 packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    exactVersion: "2.26.0"
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
     from: "7.1.0"
@@ -26,6 +31,7 @@ targets:
     dependencies:
       - target: SubaruWidget
       - package: GoogleSignIn
+      - package: Supabase
     scheme: {}
     settings:
       base:
@@ -54,7 +60,10 @@ targets:
         NSLocationAlwaysAndWhenInUseUsageDescription: "Az utak háttérben is rögzülnek, és a parkolási hely leállításkor mentődik."
         NSMotionUsageDescription: "A G-erő mérőhöz a telefon gyorsulásmérőjét használjuk."
         GIDClientID: $(GOOGLE_CLIENT_ID)
+        SupabaseURL: $(SUPABASE_URL)
+        SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
         CFBundleURLTypes:
+          - CFBundleURLSchemes: [garazs]
           - CFBundleURLSchemes: [$(GOOGLE_REVERSED_CLIENT_ID)]
 
   # Kezdőképernyő / zárolási képernyő widget: feszültség + hűtővíz

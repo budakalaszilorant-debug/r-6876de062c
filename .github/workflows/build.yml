@@ -6,6 +6,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  cloud-database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: garage-ci-only
+          POSTGRES_DB: garage_test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Felhő jogosultságok és verzióütközések
+        env:
+          PGPASSWORD: garage-ci-only
+        run: psql -h localhost -U postgres -d garage_test -f supabase/tests/cloud.sql
   ios:
     runs-on: macos-15
     steps:
@@ -14,6 +34,15 @@ jobs:
         run: sh ios-app/Tests/Garage/run.sh
       - name: OBD dugó értelmező tesztek
         run: sh ios-app/Tests/Elm/run.sh
+      - name: Nyilvános felhőbeállítások
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+        run: |
+          python3 -m venv /tmp/garage-config
+          /tmp/garage-config/bin/pip install PyYAML==6.0.2
+          /tmp/garage-config/bin/python scripts/configure_cloud.py
       - name: Projekt generálás
         run: |
           brew install xcodegen
@@ -86,13 +115,7 @@ jobs:
         run: |
           cd ios-app
           set -o pipefail
-          # Google bejelentkezés: a GOOGLE_IOS_CLIENT_ID repo-változóból (Settings → Variables), ha meg van adva
-          CID="${{ vars.GOOGLE_IOS_CLIENT_ID }}"
-          GOOGLE_ARGS=()
-          if [ -n "$CID" ]; then
-            GOOGLE_ARGS=(GOOGLE_CLIENT_ID="$CID" GOOGLE_REVERSED_CLIENT_ID="com.googleusercontent.apps.${CID%.apps.googleusercontent.com}")
-          fi
-          xcodebuild build             -project SubaruCompanion.xcodeproj             -scheme SubaruCompanion             -configuration Release             -destination 'generic/platform=iOS'             -derivedDataPath build-device             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" "${GOOGLE_ARGS[@]}"             | tee device-build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          xcodebuild build             -project SubaruCompanion.xcodeproj             -scheme SubaruCompanion             -configuration Release             -destination 'generic/platform=iOS'             -derivedDataPath build-device             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""             | tee device-build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" device-build.log
           mkdir Payload
           cp -R build-device/Build/Products/Release-iphoneos/SubaruCompanion.app Payload/

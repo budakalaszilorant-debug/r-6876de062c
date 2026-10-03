@@ -40,12 +40,24 @@ szerviztételek és lejáratok autónként külön tárolódnak.
 - A szervizterv km-intervallumait az autó szervizkönyve alapján állítsd be.
 - Dízelnél a pillanatnyi fogyasztás csak akkor látszik, ha a motorvezérlő kiadja; a tankolási napló ettől függetlenül működik.
 
-## Felhő mentés
+## Fiók, felhőmentés és telefoncsere
 
-Google bejelentkezéssel a mentés a saját Google Drive rejtett app-mappájába kerül.
-Bekapcsolásához egy Google Cloud iOS OAuth kliens azonosító kell (bundle ID: `hu.kocsi.subaru`),
-amit a GitHub repó **Settings → Secrets and variables → Actions → Variables** részén
-`GOOGLE_IOS_CLIENT_ID` néven kell megadni.
+Az app fiók és internet nélkül is működik. A választható **Supabase-fiók** e-mailes
+regisztrációt, bejelentkezést, jelszó-visszaállítást és fióktörlést biztosít.
+Az autók, utak, költségek és beállítások PostgreSQL-ben tárolt, verziózott mentésekbe kerülnek.
+A beállítást lépésről lépésre a [Supabase útmutató](supabase/README.md) írja le.
+
+- Bejelentkezés után külön választás kapcsolja a helyi garázst a fiókhoz, vagy állítja vissza a felhőmásolatot.
+- Offline minden adat SQLite-ba mentődik. Az automatikus szinkron induláskor, hálózat visszatérésekor,
+  az app futása alatt kétpercenként és háttérbe lépéskor próbálkozik, ha nincs OBD-kapcsolat vagy demo.
+- Két eszköz eltérő módosításai választást kérnek; nincs csendes felülírás vagy automatikus összevonás.
+- A legutóbbi 20 felhőváltozat visszaállítható, legfeljebb 20 MB-os mentésenként.
+- Visszaállítás előtt külön helyi biztonsági másolat készül a `Backups/SafetyCopies` mappába.
+- A régi Google Drive-mentések külön letölthetők/importálhatók. Ehhez tartsd meg a korábbi
+  `GOOGLE_IOS_CLIENT_ID` beállítást. A Drive-on semmi nem törlődik és új feltöltés sem történik.
+
+A szinkron jelenleg egy teljes garázs változataival dolgozik. Családi megosztás és soronkénti,
+automatikus összefésülés nincs bekapcsolva. A bejelentkezési tokenek nem kerülnek a mentésekbe.
 
 ## Fordítás
 

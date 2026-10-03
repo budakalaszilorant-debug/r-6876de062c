@@ -7,6 +7,7 @@ struct SubaruCompanionApp: App {
     @StateObject private var ble = BLEManager.shared
     @StateObject private var monitor = VehicleMonitor.shared
     @StateObject private var location = LocationManager.shared
+    @StateObject private var cloud = CloudSync.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -29,7 +30,13 @@ struct SubaruCompanionApp: App {
                 .environmentObject(monitor)
                 .environmentObject(location)
                 .preferredColorScheme(.dark)
-                .onOpenURL { url in CloudSync.shared.handle(url) }
+                .onOpenURL { url in
+                    CloudSync.shared.handle(url)
+                    LegacyDriveImport.shared.handle(url)
+                }
+                .sheet(isPresented: $cloud.passwordRecovery) {
+                    CloudPasswordView()
+                }
                 .task {
                     CloudSync.shared.restoreSignIn()
                     guard !Self.screenshotMode else { return }  // ne takarja engedélykérő ablak a képet
@@ -46,6 +53,7 @@ struct SubaruCompanionApp: App {
                 NotificationManager.shared.clearBadge()
                 VehicleMonitor.shared.startLiveActivityIfNeeded()
                 Task { await FrostCheck.runIfDue() }
+                Task { await CloudSync.shared.autoBackupIfNeeded() }
             }
         }
     }

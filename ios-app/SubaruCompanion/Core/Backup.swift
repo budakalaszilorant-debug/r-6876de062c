@@ -22,6 +22,17 @@ enum Backup {
         return t > 0 ? Date(timeIntervalSince1970: t) : nil
     }
 
+    /// Kept separately from rotating weekly backups: never prune a pre-restore rescue copy.
+    @discardableResult
+    static func writeSafetyCopy() throws -> URL {
+        guard let data = makeData() else { throw RestoreError.unreadable }
+        let dir = folder.appendingPathComponent("SafetyCopies", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("garazs-\(Int(Date().timeIntervalSince1970))-\(UUID()).json")
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
     static func makeData() -> Data? {
         var tablesOut: [String: Any] = [:]
         for t in tables { tablesOut[t] = Database.shared.dump(table: t) }

@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-/// Helyi SQLite tár. Semmi nem hagyja el a telefont.
+/// Helyi SQLite tár. A külön, választható CloudSync menti a felhőbe.
 final class Database {
     static let shared = Database()
     private var db: OpaquePointer?

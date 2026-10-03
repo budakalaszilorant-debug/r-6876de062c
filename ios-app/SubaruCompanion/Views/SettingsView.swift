@@ -85,7 +85,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    row(tr("Adatkezelés", "Data"), CloudSync.shared.signedIn ? tr("Telefon + saját Google Drive", "Phone + your Google Drive")
+                    row(tr("Adatkezelés", "Data"), CloudSync.shared.signedIn ? tr("Telefon + Supabase-fiók", "Phone + Supabase account")
                                                                      : tr("Csak a telefonon", "On this phone only"))
                     row(tr("Autó vezérlése", "Car control"), tr("Nincs — csak olvasás", "None — read-only"))
                 }

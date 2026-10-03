@@ -1,231 +1,341 @@
 import Foundation
 import UIKit
-import GoogleSignIn
+import Network
+import Supabase
 
-/// Felhő mentés Google-fiókkal: a teljes mentés (minden autó, út, tankolás, szerviz) a felhasználó
-/// saját Google Drive-jának rejtett app-mappájába kerül. Ezt a mappát csak ez az app látja,
-/// a Drive felületén nem jelenik meg, és nem foglal helyet a látható fájlok között.
+/// SQLite works offline; the server checks revisions before accepting any write.
 @MainActor
 final class CloudSync: ObservableObject {
     static let shared = CloudSync()
-
-    static let scope = "https://www.googleapis.com/auth/drive.appdata"
-    private let fileName = "garazs-mentes.json"
-
     @Published private(set) var email: String?
     @Published private(set) var busy = false
+    @Published private(set) var versions: [CloudVersion] = []
+    @Published private(set) var needsLink = false
+    @Published private(set) var conflict = false
     @Published private(set) var lastUpload: Date?
-    @Published private(set) var remoteDate: Date?
+    @Published private(set) var status = ""
     @Published var message: String?
+    @Published var passwordRecovery = false
+    private let client: SupabaseClient?
+    private let server: URL?
+    private let publicKey: String
+    private var owner: UUID?
+    private var authTask: Task<Void, Never>?
+    private var periodicTask: Task<Void, Never>?
+    private let network = NWPathMonitor()
+    private var started = false
+    private var checkpoint = CloudCheckpoint()
+    private let defaults = UserDefaults.standard
+    private static let callback = URL(string: "garazs://auth/callback")!
+    private enum Failure: Error { case configuration, accountChanged, conflict, activeTrip, localChanged, invalid, tooLarge, http(Int) }
 
+    var isConfigured: Bool { client != nil }
+    var signedIn: Bool { owner != nil }
+    var remoteDate: Date? { versions.first?.created_at }
+    var canRestore: Bool { VehicleMonitor.shared.canManageGarage && !VehicleMonitor.shared.demoActive }
     var autoBackup: Bool {
-        get { (UserDefaults.standard.object(forKey: "cloudAuto") as? Bool) ?? true }
-        set {
-            objectWillChange.send()
-            UserDefaults.standard.set(newValue, forKey: "cloudAuto")
-        }
+        get { (defaults.object(forKey: "supabaseAutoSync") as? Bool) ?? true }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "supabaseAutoSync") }
     }
-
-    enum CloudError: Error { case notConfigured, notSignedIn, http(Int), noBackup }
 
     private init() {
-        let t = UserDefaults.standard.double(forKey: "cloudLastUpload")
-        if t > 0 { lastUpload = Date(timeIntervalSince1970: t) }
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "SupabaseURL") as? String) ?? ""
+        let key = (Bundle.main.object(forInfoDictionaryKey: "SupabasePublishableKey") as? String) ?? ""
+        publicKey = key
+        if let url = URL(string: raw), url.scheme == "https", url.host != nil,
+           !key.isEmpty, !key.contains("$("), !key.hasPrefix("sb_secret_") {
+            server = url
+            client = SupabaseClient(supabaseURL: url, supabaseKey: key)
+        } else { server = nil; client = nil }
     }
-
-    /// Az iOS OAuth kliens azonosító az Info.plist-ből (a project.yml GOOGLE_CLIENT_ID értéke).
-    private var clientID: String? {
-        guard let id = Bundle.main.object(forInfoDictionaryKey: "GIDClientID") as? String,
-              id.hasSuffix(".apps.googleusercontent.com") else { return nil }
-        return id
-    }
-
-    var isConfigured: Bool { clientID != nil }
-    var signedIn: Bool { email != nil }
-
-    // MARK: Bejelentkezés
 
     func restoreSignIn() {
-        guard let clientID else { return }
-        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
-        GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, _ in
-            Task { @MainActor in
-                self?.email = user?.profile?.email
-                if user != nil { await self?.refreshRemoteInfo() }
+        guard !started, let client else { return }
+        started = true
+        applySession(client.auth.currentSession)
+        authTask = Task { [weak self] in
+            for await (event, session) in client.auth.authStateChanges {
+                guard let self else { return }
+                self.applySession(session)
+                if event == .passwordRecovery { self.passwordRecovery = true }
             }
         }
+        network.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { return }
+            Task { @MainActor in await self?.autoBackupIfNeeded() }
+        }
+        network.start(queue: DispatchQueue(label: "garage.cloud.network"))
+        periodicTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 120_000_000_000)
+                guard !Task.isCancelled else { break }
+                await self?.autoBackupIfNeeded()
+            }
+        }
+    }
+
+    private var accountKey: String? {
+        guard let owner, let server else { return nil }
+        return "garage-cloud-\(server.host ?? "")-\(owner.uuidString)"
+    }
+
+    private func applySession(_ session: Session?) {
+        let id = session?.user.id
+        email = session?.user.email
+        guard owner != id else { return }
+        owner = id
+        versions = []; conflict = false; checkpoint = CloudCheckpoint(); lastUpload = nil
+        if let key = accountKey, let data = defaults.data(forKey: key),
+           let saved = try? JSONDecoder().decode(CloudCheckpoint.self, from: data) { checkpoint = saved }
+        // Never upload the previous account's local garage to a newly signed-in account.
+        needsLink = id != nil && defaults.string(forKey: "garage-cloud-owner") != accountKey
+        lastUpload = checkpoint.lastSync
+        status = needsLink ? tr("Válaszd ki, melyik garázst használod.", "Choose which garage to use.") : ""
+    }
+
+    func signIn(email: String, password: String, register: Bool) async {
+        guard !busy, let client else { return }
+        busy = true; defer { busy = false }
+        do {
+            if register {
+                let result = try await client.auth.signUp(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password, redirectTo: Self.callback)
+                applySession(result.session)
+                if result.session == nil { message = tr("Erősítsd meg az e-mail-címed a kapott levélben, majd jelentkezz be.", "Confirm your email using the message we sent, then sign in.") }
+            } else {
+                let session = try await client.auth.signIn(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
+                applySession(session)
+            }
+            if let owner { try await refresh(owner) }
+        } catch { report(error) }
     }
 
     func handle(_ url: URL) {
-        _ = GIDSignIn.sharedInstance.handle(url)
-    }
-
-    func signIn() {
-        guard let clientID else { message = tr("A Google bejelentkezés nincs beállítva.", "Google sign-in is not configured."); return }
-        guard let root = Self.topViewController() else { return }
-        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
-        GIDSignIn.sharedInstance.signIn(withPresenting: root, hint: nil, additionalScopes: [Self.scope]) { [weak self] result, error in
-            Task { @MainActor in
-                guard let self else { return }
-                if let user = result?.user {
-                    self.email = user.profile?.email
-                    await self.refreshRemoteInfo()
-                    // Ha a felhőben még nincs mentés, rögtön feltöltjük a mostani adatokat.
-                    if self.remoteDate == nil { await self.upload() }
-                } else if let error, (error as NSError).code != GIDSignInError.canceled.rawValue {
-                    self.message = tr("A bejelentkezés nem sikerült.", "Sign-in failed.")
-                }
-            }
+        guard url.scheme == "garazs", url.host == "auth", url.path == "/callback", let client else { return }
+        Task {
+            do { applySession(try await client.auth.session(from: url)) }
+            catch { report(error) }
         }
     }
 
-    func signOut() {
-        GIDSignIn.sharedInstance.signOut()
-        email = nil
-        remoteDate = nil
-    }
-
-    // MARK: Feltöltés / letöltés
-
-    /// Automatikus mentés (út végén, háttérbe lépéskor), legfeljebb óránként egyszer.
-    func autoBackupIfNeeded() async {
-        guard autoBackup, signedIn, !busy else { return }
-        if let last = lastUpload, Date().timeIntervalSince(last) < 3600 { return }
-        let app = UIApplication.shared
-        var task = UIBackgroundTaskIdentifier.invalid
-        task = app.beginBackgroundTask { app.endBackgroundTask(task) }
-        await upload(silent: true)
-        if task != .invalid { app.endBackgroundTask(task) }
-    }
-
-    func upload(silent: Bool = false) async {
-        guard !busy else { return }
-        busy = true
-        defer { busy = false }
+    func resetPassword(email: String) async {
+        guard !busy, let client else { return }
+        busy = true; defer { busy = false }
         do {
-            guard let data = Backup.makeData() else { throw CloudError.noBackup }
-            let token = try await accessToken()
-            let existing = try await findFile(token: token)
-            if let id = existing {
-                var req = request("https://www.googleapis.com/upload/drive/v3/files/\(id)?uploadType=media", token: token)
-                req.httpMethod = "PATCH"
-                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                req.httpBody = data
-                try await send(req)
-            } else {
-                let boundary = "garazs-\(UUID().uuidString)"
-                var body = Data()
-                let meta = #"{"name":"\#(fileName)","parents":["appDataFolder"]}"#
-                body.append("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n\(meta)\r\n".data(using: .utf8)!)
-                body.append("--\(boundary)\r\nContent-Type: application/json\r\n\r\n".data(using: .utf8)!)
-                body.append(data)
-                body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-                var req = request("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", token: token)
-                req.httpMethod = "POST"
-                req.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-                req.httpBody = body
-                try await send(req)
-            }
-            lastUpload = Date()
-            remoteDate = lastUpload
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "cloudLastUpload")
-            if !silent { message = tr("Mentve a felhőbe.", "Saved to the cloud.") }
-        } catch {
-            if !silent { message = describe(error) }
-        }
+            try await client.auth.resetPasswordForEmail(email.trimmingCharacters(in: .whitespacesAndNewlines), redirectTo: Self.callback)
+            message = tr("Ha tartozik fiók ehhez a címhez, elküldtük a jelszó-visszaállító levelet. Ezen az iPhone-on nyisd meg.", "If an account exists, a reset email has been sent. Open it on this iPhone.")
+        } catch { report(error) }
     }
 
-    /// A felhőben lévő mentés visszaállítása (a mostani adatok helyére kerül).
-    func restoreFromCloud() async {
-        guard !busy else { return }
-        busy = true
-        defer { busy = false }
+    func changePassword(_ password: String) async {
+        guard !busy, let client else { return }
+        busy = true; defer { busy = false }
         do {
-            let token = try await accessToken()
-            let existing = try await findFile(token: token)
-            guard let id = existing else { throw CloudError.noBackup }
-            let req = request("https://www.googleapis.com/drive/v3/files/\(id)?alt=media", token: token)
-            let data = try await send(req)
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("felho-mentes.json")
-            try data.write(to: url, options: .atomic)
-            defer { try? FileManager.default.removeItem(at: url) }
-            let rows = try Backup.restore(from: url)
-            VehicleMonitor.shared.reloadAfterRestore()
-            message = tr("Visszaállítva a felhőből: \(rows) sor.", "Restored from the cloud: \(rows) rows.")
-        } catch {
-            message = describe(error)
-        }
+            try await client.auth.update(user: UserAttributes(password: password))
+            passwordRecovery = false
+            message = tr("A jelszó megváltozott.", "Password updated.")
+        } catch { report(error) }
+    }
+
+    func signOut() async {
+        guard !busy, let client else { return }
+        busy = true; defer { busy = false }
+        // Supabase clears the local session before its network logout request.
+        try? await client.auth.signOut(scope: .local)
+        applySession(nil)
+        passwordRecovery = false
+    }
+
+    func deleteAccount() async {
+        guard !busy, let id = owner, let client else { return }
+        busy = true; defer { busy = false }
+        do {
+            _ = try await request("rpc/garage_delete_account", owner: id, body: [:])
+            if let key = accountKey { defaults.removeObject(forKey: key) }
+            defaults.removeObject(forKey: "garage-cloud-owner")
+            try? await client.auth.signOut(scope: .local)
+            applySession(nil)
+            message = tr("A fiók és a felhőadatai törölve. A telefon adatai megmaradtak.", "Account and cloud data deleted. Data on this phone is preserved.")
+        } catch { report(error) }
     }
 
     func refreshRemoteInfo() async {
-        guard let token = try? await accessToken() else { return }
-        _ = try? await findFile(token: token)
+        guard !busy, let id = owner else { return }
+        busy = true; defer { busy = false }
+        do { try await refresh(id) } catch { report(error) }
     }
 
-    // MARK: Drive API
-
-    /// A mentés fájl azonosítója az app-mappában (és közben frissíti a felhőbeli dátumot).
-    private func findFile(token: String) async throws -> String? {
-        var c = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
-        c.queryItems = [
-            URLQueryItem(name: "spaces", value: "appDataFolder"),
-            URLQueryItem(name: "q", value: "name='\(fileName)'"),
-            URLQueryItem(name: "fields", value: "files(id,modifiedTime)"),
-        ]
-        let data = try await send(request(c.url!.absoluteString, token: token))
-        struct List: Decodable { struct F: Decodable { let id: String; let modifiedTime: String? }; let files: [F] }
-        let file = try JSONDecoder().decode(List.self, from: data).files.first
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        remoteDate = file?.modifiedTime.flatMap { f.date(from: $0) }
-        return file?.id
+    private func refresh(_ id: UUID) async throws {
+        let data = try await request("garage_versions", owner: id, query: [
+            .init(name: "select", value: "revision,fingerprint,created_at,device_name,car_count,trip_count"),
+            .init(name: "order", value: "revision.desc"), .init(name: "limit", value: "20")])
+        versions = try Self.decoder.decode([CloudVersion].self, from: data)
     }
 
-    private func request(_ url: String, token: String) -> URLRequest {
-        var req = URLRequest(url: URL(string: url)!)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.timeoutInterval = 60
-        return req
+    func autoBackupIfNeeded() async {
+        guard autoBackup, signedIn, !busy, !needsLink, !conflict, canRestore else { return }
+        var background = UIBackgroundTaskIdentifier.invalid
+        background = UIApplication.shared.beginBackgroundTask {
+            if background != .invalid {
+                UIApplication.shared.endBackgroundTask(background)
+                background = .invalid
+            }
+        }
+        defer {
+            if background != .invalid { UIApplication.shared.endBackgroundTask(background); background = .invalid }
+        }
+        await upload(silent: true)
     }
 
-    @discardableResult
-    private func send(_ req: URLRequest) async throws -> Data {
+    /// A changed local copy is the durable upload queue. A lost response is safe to retry.
+    func upload(silent: Bool = false) async {
+        guard !busy, let id = owner, !needsLink, !conflict else { return }
+        busy = true; defer { busy = false }
+        do {
+            guard canRestore else { throw Failure.activeTrip }
+            let local = try snapshot(), hash = try CloudPayload.hash(local)
+            try await refresh(id)
+            let head = versions.first
+            switch CloudDecision.decide(linked: true, base: checkpoint.revision, baseHash: checkpoint.fingerprint,
+                                        localHash: hash, remoteRevision: head?.revision, remoteHash: head?.fingerprint) {
+            case .upload:
+                let version = try await commit(local, expected: head?.revision ?? 0, owner: id)
+                saveCheckpoint(version)
+                versions.insert(version, at: 0)
+            case .download:
+                if let head { try await download(head, owner: id, originalHash: hash) }
+            case .conflict, .link:
+                conflict = true
+                status = tr("Mindkét eszközön változtak az adatok. Válassz egy változatot.", "Both copies changed. Choose a version.")
+                return
+            case .unchanged:
+                if let head { saveCheckpoint(head) }
+            }
+            status = tr("Szinkronizálva", "Synced")
+            if !silent { message = status }
+        } catch { report(error, silent: silent) }
+    }
+
+    /// Only invoked after confirmation of linking or explicitly choosing this phone's copy.
+    func useLocalGarage() async {
+        guard !busy, let id = owner else { return }
+        let reviewedRevision = versions.first?.revision ?? 0
+        busy = true; defer { busy = false }
+        do {
+            guard canRestore else { throw Failure.activeTrip }
+            let version = try await commit(snapshot(), expected: reviewedRevision, owner: id)
+            saveCheckpoint(version)
+            try await refresh(id)
+            status = tr("A telefon garázsa mentve. A korábbi felhőváltozat a mentések között marad.", "Phone garage saved. The previous cloud version remains in history.")
+        } catch { report(error) }
+    }
+
+    func restoreFromCloud(version: CloudVersion? = nil) async {
+        guard !busy, let id = owner, let selected = version ?? versions.first else { return }
+        busy = true; defer { busy = false }
+        do {
+            guard canRestore else { throw Failure.activeTrip }
+            let originalHash = try CloudPayload.hash(snapshot())
+            try await download(selected, owner: id, originalHash: originalHash)
+            status = tr("Visszaállítva. A korábbi helyi adatokról biztonsági másolat készült.", "Restored. A safety copy of the previous local data was saved.")
+            message = status
+        } catch { report(error) }
+    }
+
+    private func download(_ version: CloudVersion, owner id: UUID, originalHash: String) async throws {
+        let data = try await request("garage_versions", owner: id, query: [
+            .init(name: "select", value: "payload"), .init(name: "revision", value: "eq.\(version.revision)")])
+        guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              rows.count == 1, let payload = rows.first?["payload"] else { throw Failure.invalid }
+        let backup = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        guard try CloudPayload.hash(backup) == version.fingerprint else { throw Failure.invalid }
+        guard canRestore else { throw Failure.activeTrip }
+        guard try CloudPayload.hash(snapshot()) == originalHash else { throw Failure.localChanged }
+        // No suspension between the final checks, safety copy and database replacement.
+        _ = try Backup.writeSafetyCopy()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("restore-\(UUID()).json")
+        try backup.write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+        _ = try Backup.restore(from: url)
+        VehicleMonitor.shared.reloadAfterRestore()
+        // An old restore point is an edit against the observed head, uploaded as a NEW version.
+        if version.revision == versions.first?.revision {
+            saveCheckpoint(version, fingerprint: try CloudPayload.hash(snapshot()))
+        } else {
+            saveCheckpoint(versions.first ?? version)
+        }
+    }
+
+    private func snapshot() throws -> Data {
+        guard let data = Backup.makeData() else { throw Failure.invalid }
+        guard data.count <= CloudPayload.maximumBytes else { throw Failure.tooLarge }
+        return try CloudPayload.canonical(data)
+    }
+
+    private func commit(_ data: Data, expected: Int64, owner id: UUID) async throws -> CloudVersion {
+        let result = try await request("rpc/garage_commit", owner: id, body: [
+            "p_expected": expected, "p_fingerprint": try CloudPayload.hash(data),
+            "p_payload": try JSONSerialization.jsonObject(with: data), "p_device": "iPhone"])
+        return try Self.decoder.decode(CloudVersion.self, from: result)
+    }
+
+    private func saveCheckpoint(_ version: CloudVersion, fingerprint: String? = nil) {
+        checkpoint = CloudCheckpoint(revision: version.revision, fingerprint: fingerprint ?? version.fingerprint, lastSync: Date())
+        needsLink = false; conflict = false; lastUpload = checkpoint.lastSync
+        defaults.set(accountKey, forKey: "garage-cloud-owner")
+        if let key = accountKey, let data = try? JSONEncoder().encode(checkpoint) { defaults.set(data, forKey: key) }
+    }
+
+    private func request(_ path: String, owner id: UUID, query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> Data {
+        guard let client, let server else { throw Failure.configuration }
+        let session = try await client.auth.session
+        guard owner == id, session.user.id == id else { throw Failure.accountChanged }
+        var components = URLComponents(url: server.appendingPathComponent("rest/v1/" + path), resolvingAgainstBaseURL: false)!
+        components.queryItems = query.isEmpty ? nil : query
+        var req = URLRequest(url: components.url!)
+        req.timeoutInterval = 45
+        req.setValue(publicKey, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer " + session.accessToken, forHTTPHeaderField: "Authorization")
+        if let body {
+            req.httpMethod = "POST"
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         let (data, response) = try await URLSession.shared.data(for: req)
+        guard owner == id else { throw Failure.accountChanged }
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(code) else { throw CloudError.http(code) }
+        if code == 409 { throw Failure.conflict }
+        guard (200..<300).contains(code) else { throw Failure.http(code) }
         return data
     }
 
-    private func accessToken() async throws -> String {
-        guard isConfigured else { throw CloudError.notConfigured }
-        guard let user = GIDSignIn.sharedInstance.currentUser else { throw CloudError.notSignedIn }
-        return try await withCheckedThrowingContinuation { cont in
-            user.refreshTokensIfNeeded { user, error in
-                if let token = user?.accessToken.tokenString {
-                    cont.resume(returning: token)
-                } else {
-                    cont.resume(throwing: error ?? CloudError.notSignedIn)
-                }
-            }
+    private static var decoder: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { d in
+            let value = try d.singleValueContainer().decode(String.self)
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = f.date(from: value) { return date }
+            f.formatOptions = [.withInternetDateTime]
+            guard let date = f.date(from: value) else { throw Failure.invalid }
+            return date
         }
+        return decoder
     }
 
-    private func describe(_ error: Error) -> String {
+    private func report(_ error: Error, silent: Bool = false) {
         switch error {
-        case CloudError.notConfigured: return tr("A Google bejelentkezés nincs beállítva.", "Google sign-in is not configured.")
-        case CloudError.notSignedIn: return tr("Jelentkezz be újra.", "Please sign in again.")
-        case CloudError.noBackup: return tr("A felhőben még nincs mentés.", "There is no backup in the cloud yet.")
-        case CloudError.http(let code): return tr("A Google hibát jelzett (\(code)).", "Google returned an error (\(code)).")
-        case is Backup.RestoreError: return tr("A felhőben lévő mentés nem olvasható.", "The cloud backup can't be read.")
-        default: return tr("Nincs internetkapcsolat, vagy a Google nem érhető el.", "No internet connection, or Google is unreachable.")
+        case Failure.conflict:
+            conflict = true
+            status = tr("Új felhőváltozat érkezett. Frissítsd a mentések listáját, majd válassz.", "Cloud data changed. Refresh the versions, then choose.")
+        case Failure.activeTrip: status = tr("Állítsd le a demót és bontsd az OBD-kapcsolatot a szinkronizáláshoz.", "Stop demo mode and disconnect OBD before syncing.")
+        case Failure.localChanged: status = tr("Közben változtak a helyi adatok. Nem írtuk felül őket; próbáld újra.", "Local data changed. Nothing was replaced; please retry.")
+        case Failure.tooLarge: status = tr("A mentés nagyobb 20 MB-nál. Készíts fájlmentést; a felhőmásolat nem változott.", "Backup exceeds 20 MB. Export a file; the cloud copy is unchanged.")
+        case Failure.invalid, is Backup.RestoreError: status = tr("A mentés sérült vagy nem támogatott. A helyi adatok megmaradtak.", "Backup is invalid or unsupported. Local data is preserved.")
+        case Failure.http(401), Failure.http(403): status = tr("Jelentkezz be újra, vagy ellenőrizd a felhő jogosultságait.", "Sign in again or check cloud permissions.")
+        case Failure.http(404): status = tr("A felhő adatbázisa még nincs telepítve.", "The cloud database has not been installed yet.")
+        case is AuthError: status = tr("A bejelentkezési művelet nem sikerült. Ellenőrizd az adatokat és az e-mail-megerősítést; túl sok kérés után várj pár percet.", "Authentication failed. Check credentials and email confirmation; after too many requests, wait a few minutes.")
+        default: status = tr("A felhő nem érhető el. A helyi adatok megvannak; később újrapróbáljuk.", "Cloud unavailable. Local data is safe; we will retry later.")
         }
-    }
-
-    private static func topViewController() -> UIViewController? {
-        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-        var vc = scene?.windows.first { $0.isKeyWindow }?.rootViewController
-        while let presented = vc?.presentedViewController { vc = presented }
-        return vc
+        if !silent { message = status }
     }
 }

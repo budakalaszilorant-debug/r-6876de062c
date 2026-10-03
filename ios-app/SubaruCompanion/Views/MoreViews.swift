@@ -185,6 +185,7 @@ struct BackupSection: View {
             Button(tr("Visszaállítás", "Restore"), role: .destructive) {
                 guard monitor.canManageGarage, let url = pendingImport else { return }
                 do {
+                    _ = try Backup.writeSafetyCopy()
                     let rows = try Backup.restore(from: url)
                     monitor.reloadAfterRestore()
                     message = tr("Visszaállítva: \(rows) sor.", "Restored \(rows) rows.")
