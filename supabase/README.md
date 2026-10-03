@@ -39,8 +39,8 @@ Ezek kliensbe építhető beállítások. `service_role`, `sb_secret_…`, adatb
 Supabase személyes hozzáférési token **nem kerülhet az appba vagy a repóba**.
 A konfiguráló script elutasítja a privilegizált kulcsot. A felhasználók elkülönítését az RLS biztosítja.
 
-Indíts új Actions buildet, és telepítsd a kapott IPA-t. A beállítások a szimulátoros és telefonos
-csomagba egyaránt bekerülnek. Helyi Mac-buildnél a `project.yml` két SUPABASE értékét állítsd be
+Indíts új Actions buildet, és telepítsd a kapott IPA-t. A beállítások a telefonos
+csomagba kerülnek. Helyi Mac-buildnél a `project.yml` két SUPABASE értékét állítsd be
 XcodeGen előtt, vagy használd a `scripts/configure_cloud.py` scriptet a megfelelő környezeti változókkal.
 
 ## 4. Első használat és a korábbi adatok
@@ -80,7 +80,7 @@ OBD-kapcsolatot bontva kézzel is szinkronizálhatsz. Demoadatot nem szinkroniz�
 
 A GitHub workflow PostgreSQL 16-on ellenőrzi az RLS-t, az ütközést, az ismételt kérés idempotenciáját,
 a 20-verziós korlátot és a fióktörlés elkülönítését. A Swift garázsteszt ellenőrzi a szinkrondöntéseket,
-a stabil tartalomazonosítót és a helyi biztonsági másolatot; az iOS appot szimulátorra és telefonra is fordítja.
+a stabil tartalomazonosítót és a helyi biztonsági másolatot; az iOS appból telefonos IPA-t készít.
 
 Projekt létrehozása után két külön tesztfiókkal és két eszközzel ellenőrizd a belépést, e-mailt,
 jelszó-visszaállítást, offline mentést, telefoncserét és az ütközésfeloldást. Ezek az élő szolgáltatói

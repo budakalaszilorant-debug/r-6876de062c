@@ -1,5 +1,5 @@
 # Mac nélküli ellenőrzés: a GitHub felhős gépein teszteli és lefordítja az iOS appot.
-# Az iOS build aláírás nélkül, szimulátorra megy: csak azt mutatja meg, hogy a kód lefordul-e.
+# A telefonos IPA aláírás nélkül készül; telepítéskor a Sideloadly írja alá.
 name: build
 on:
   push:
@@ -47,25 +47,6 @@ jobs:
         run: |
           brew install xcodegen
           cd ios-app && xcodegen generate
-      - name: Fordítás (szimulátor, aláírás nélkül)
-        run: |
-          cd ios-app
-          set -o pipefail
-          xcodebuild build \
-            -project SubaruCompanion.xcodeproj \
-            -scheme SubaruCompanion \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            | tee build.log | grep -E "error:|warning: unused|BUILD (SUCCEEDED|FAILED)" || true
-          grep -q "BUILD SUCCEEDED" build.log
-      # Szimulátoros app csomag: böngészős iPhone szimulátorba (pl. appetize.io) feltölthető.
-      - name: Szimulátoros app csomagolása
-        run: cd ios-app/build/Build/Products/Debug-iphonesimulator && zip -qr "$GITHUB_WORKSPACE/SubaruCompanion-simulator.zip" SubaruCompanion.app
-      - uses: actions/upload-artifact@v4
-        with:
-          name: szimulator-app
-          path: SubaruCompanion-simulator.zip
       # Telefonra telepíthető, aláíratlan csomag. Windowsról a Sideloadly írja alá a saját Apple ID-ddal.
       - name: Telefonos csomag (IPA) készítése
         run: |
@@ -85,4 +66,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-build-log
-          path: ios-app/build.log
+          path: ios-app/device-build.log
