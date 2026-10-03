@@ -16,7 +16,7 @@ create table public.garage_versions (
 );
 alter table public.garage_heads enable row level security;
 alter table public.garage_versions enable row level security;
-revoke all on public.garage_heads, public.garage_versions from anon, authenticated;
+revoke all on public.garage_heads, public.garage_versions from public, anon, authenticated;
 grant select on public.garage_heads, public.garage_versions to authenticated;
 create policy own_head on public.garage_heads for select to authenticated using (owner_id = (select auth.uid()));
 create policy own_versions on public.garage_versions for select to authenticated using (owner_id = (select auth.uid()));
@@ -49,7 +49,8 @@ begin
         return to_jsonb(result) - 'payload' - 'owner_id';
     end if;
     if current_revision <> p_expected then
-        raise exception 'Garage changed on another device' using errcode = '40001';
+        -- PT409 maps to HTTP 409. 40001 would cause PostgREST transaction retries.
+        raise sqlstate 'PT409' using message = 'Garage changed on another device';
     end if;
     insert into public.garage_versions(owner_id, revision, fingerprint, payload, device_name, car_count, trip_count)
     values(uid, current_revision + 1, p_fingerprint, p_payload, left(coalesce(p_device, 'iPhone'), 80),

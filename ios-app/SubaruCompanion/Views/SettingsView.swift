@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @ObservedObject private var cloud = CloudSync.shared
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var ble: BLEManager
     @EnvironmentObject var monitor: VehicleMonitor
@@ -85,7 +86,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    row(tr("Adatkezelés", "Data"), CloudSync.shared.signedIn ? tr("Telefon + Supabase-fiók", "Phone + Supabase account")
+                    row(tr("Adatkezelés", "Data"), cloud.signedIn && !cloud.needsLink ? tr("Telefon + Supabase-fiók", "Phone + Supabase account")
                                                                      : tr("Csak a telefonon", "On this phone only"))
                     row(tr("Autó vezérlése", "Car control"), tr("Nincs — csak olvasás", "None — read-only"))
                 }

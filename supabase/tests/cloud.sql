@@ -23,7 +23,7 @@ begin
     begin
         perform public.garage_commit(0, repeat('b',64), p, 'phone B');
         raise exception 'stale write accepted';
-    exception when serialization_failure then null;
+    exception when sqlstate 'PT409' then null;
     end;
     begin
         delete from public.garage_versions;

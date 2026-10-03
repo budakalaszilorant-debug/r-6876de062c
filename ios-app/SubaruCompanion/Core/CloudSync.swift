@@ -200,7 +200,7 @@ final class CloudSync: ObservableObject {
             case .upload:
                 let version = try await commit(local, expected: head?.revision ?? 0, owner: id)
                 saveCheckpoint(version)
-                versions.insert(version, at: 0)
+                versions = Array(([version] + versions.filter { $0.revision != version.revision }).prefix(20))
             case .download:
                 if let head { try await download(head, owner: id, originalHash: hash) }
             case .conflict, .link:
