@@ -114,7 +114,8 @@ enum RepairStore {
         try GaragePlus.save(rows, key: "repairs", car: car)
     }
     static func observe(_ codes: [String]) {
-        guard var last = all().first, ["verified", "remaining", "acknowledged"].contains(last.status) else { return }
+        // Only a previously confirmed empty stored-code list establishes that a code disappeared.
+        guard var last = all().first, last.status == "verified" else { return }
         let returned = Set(codes).intersection(last.originalCodes).union(last.returnedCodes).sorted()
         guard returned != last.returnedCodes else { return }
         last.returnedCodes = returned

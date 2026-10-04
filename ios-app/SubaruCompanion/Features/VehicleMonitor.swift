@@ -81,6 +81,7 @@ final class VehicleMonitor: ObservableObject {
     private var highVoltageSince: Date?
     private var lastVoltageLog = Date.distantPast
     private var lastCodes: [String]?
+    private var lastRepairObservation = ""
     private var stoppedSince: Date?
     private var wasRunning = false
     private var lastServiceCheck = Date.distantPast
@@ -197,7 +198,11 @@ final class VehicleMonitor: ObservableObject {
         updateOverheat(p)
 
         updateFaultCodes(p)
-        RepairStore.observe(p.faultCodes + p.pendingCodes)
+        let repairObservation = "\(settings.activeCarId):" + p.faultCodes.sorted().joined(separator: ",")
+        if repairObservation != lastRepairObservation {
+            lastRepairObservation = repairObservation
+            RepairStore.observe(p.faultCodes)
+        }
         afterStartChecks(p, now: now)
         updateInsights(p, now: now)
         updateWidget(p, now: now)

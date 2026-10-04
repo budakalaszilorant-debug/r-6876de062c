@@ -156,6 +156,13 @@ repair.originalCodes = ["P0300"]; repair.status = "verified"
 try RepairStore.save(repair, car: extrasCar)
 RepairStore.observe(["P0300", "P0420"])
 expect(RepairStore.all().first?.returnedCodes == ["P0300"], "only original faults count as recurrence")
+repair.status = "remaining"
+try RepairStore.save(repair, car: extrasCar)
+RepairStore.observe(["P0300"])
+expect(RepairStore.all().first?.returnedCodes.isEmpty == true, "uncleared fault is not falsely marked as returned")
+repair.status = "verified"
+try RepairStore.save(repair, car: extrasCar)
+RepairStore.observe(["P0300"])
 let extrasBackup = Backup.makeData()!
 try db.checkedExecute("DELETE FROM garage_plus")
 try extrasBackup.write(to: file)
