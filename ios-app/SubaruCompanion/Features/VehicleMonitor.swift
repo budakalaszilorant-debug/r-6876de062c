@@ -191,6 +191,7 @@ final class VehicleMonitor: ObservableObject {
         updateOverheat(p)
 
         updateFaultCodes(p)
+        RepairStore.observe(p.faultCodes + p.pendingCodes)
         afterStartChecks(p, now: now)
         updateInsights(p, now: now)
         updateWidget(p, now: now)
@@ -210,12 +211,22 @@ final class VehicleMonitor: ObservableObject {
                      coolant: p.coolantTemp.map { Int($0) },
                      warm: (p.coolantTemp ?? 0) >= CarSpec.warmTemp,
                      tripKm: ((t?.distanceKm ?? 0) * 10).rounded() / 10,
-                     consumption: t?.avgConsumption.map { ($0 * 10).rounded() / 10 })
+                     consumption: t?.avgConsumption.map { ($0 * 10).rounded() / 10 },
+                     carID: settings.activeCarId, carName: settings.carName,
+                     mode: warmUp.isWarm ? "drive" : "warmup",
+                     progress: min(1, max(0, (p.coolantTemp ?? 0) / settings.warmTemp)),
+                     etaMinutes: warmUp.etaMinutes.map { Int(ceil($0)) },
+                     parkingEnd: nil, hu: settings.language == .hu)
     }
 
     /// Az iOS csak előtérben lévő appnak engedi elindítani: az app megnyitásakor hívjuk.
     func startLiveActivityIfNeeded() {
-        guard settings.featLiveActivity, !demoActive, let t = recorder.active, let p = packet else { return }
+        guard settings.featLiveActivity, !demoActive else { return }
+        if recorder.active == nil, let end = ParkingTimer.shared.end, end > Date() {
+            DriveActivity.shared.parking(until: end)
+            return
+        }
+        guard let t = recorder.active, let p = packet, isLive else { return }
         DriveActivity.shared.start(tripStart: t.start, state: activityState(p))
     }
 

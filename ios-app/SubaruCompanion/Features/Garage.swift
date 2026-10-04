@@ -185,7 +185,7 @@ enum CarStore {
 
 extension Database {
     /// Azok a táblák, amelyek sorai egy autóhoz tartoznak.
-    static let carTables = ["expenses", "trips", "fills", "parking", "voltage_log", "events", "battery_health",
+    static let carTables = ["garage_plus", "expenses", "trips", "fills", "parking", "voltage_log", "events", "battery_health",
                             "service_plan", "service_done", "reminder_dates", "dtc_hist"]
 
     /// Autó beszúrása a sablon szervizterv tételeivel. A migráció is ezt használja, ezért

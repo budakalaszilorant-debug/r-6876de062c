@@ -84,6 +84,10 @@ enum TripStore {
     }
 
     static func delete(_ id: Int) {
+        if var samples = GaragePlus.load([DrivingSample].self, key: "baseline") {
+            samples.removeAll { $0.id == id }
+            try? GaragePlus.save(samples, key: "baseline")
+        }
         db.execute("DELETE FROM trip_points WHERE trip_id = ?", [id])
         db.execute("DELETE FROM trips WHERE id = ?", [id])
     }
@@ -116,15 +120,23 @@ enum TripStore {
 final class TripRecorder {
     private(set) var active: Trip?
     private var lastFlush = Date()
+    private var sampleTemp: Double?
+    private var warmSeconds: Double?
+    private var validSeconds = 0.0
+    private var source = ""
+    private var mixedSource = false
+    private var resumed = false
     private var cancellable: AnyCancellable?
     private let db = Database.shared
     private let location = LocationManager.shared
 
     func ensureStarted(startId: Int, odometer: Double) {
         guard active == nil else { return }
+        sampleTemp = nil; warmSeconds = nil; validSeconds = 0; source = ""; mixedSource = false; resumed = false
         TripStore.closeStale(except: startId)
         if let existing = TripStore.open(startId: startId) {
             active = existing
+            resumed = true
         } else {
             let now = Date()
             let id = db.execute(
@@ -143,6 +155,17 @@ final class TripRecorder {
 
     func update(packet p: VehiclePacket, dt: TimeInterval) {
         guard var trip = active else { return }
+        if sampleTemp == nil, Date().timeIntervalSince(trip.start) <= 5 { sampleTemp = p.coolantTemp }
+        if warmSeconds == nil, let initial = sampleTemp, initial < 50,
+           let temp = p.coolantTemp, temp >= AppSettings.shared.warmTemp {
+            warmSeconds = Date().timeIntervalSince(trip.start)
+        }
+        if p.engineRunning, p.vehicleSpeed != nil, p.fuelRateLph != nil {
+            validSeconds += dt
+            let nextSource = p.fuelRate == nil ? "maf" : "pid"
+            if !source.isEmpty && source != nextSource { mixedSource = true }
+            source = nextSource
+        }
         if let v = p.vehicleSpeed {
             trip.distanceKm += v * dt / 3600
             trip.maxSpeed = max(trip.maxSpeed, v)
@@ -188,6 +211,15 @@ final class TripRecorder {
         trip.cost = trip.fuelL.map { $0 * AppSettings.shared.lastFuelPrice }
         db.execute("UPDATE trips SET end_t = ?, cost = ? WHERE id = ?",
                    [Date().timeIntervalSince1970, trip.cost, trip.id])
+        if !resumed, !mixedSource, trip.duration > 0 {
+            var samples = GaragePlus.load([DrivingSample].self, key: "baseline") ?? []
+            samples.removeAll { $0.id == trip.id }
+            samples.append(DrivingSample(id: trip.id, date: trip.start, km: trip.distanceKm,
+                speed: trip.avgSpeed, idleFraction: trip.idleS / trip.duration,
+                consumption: trip.avgConsumption, startTemp: sampleTemp, warmSeconds: warmSeconds,
+                coverage: min(1, validSeconds / trip.duration), source: source))
+            try? GaragePlus.save(Array(samples.suffix(200)), key: "baseline")
+        }
         return (spot, trip)
     }
 }

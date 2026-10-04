@@ -4,7 +4,7 @@ import CoreBluetooth
 /// Közvetlen kapcsolat egy bolti Bluetooth LE OBD dugóval (ELM327 kompatibilis, pl. Vgate iCar Pro BLE).
 /// Sorban lekérdezi az autót, és `VehiclePacket`-et ad ki az app többi részének.
 ///
-/// Csak olvas: minden parancs átmegy az `Elm.isAllowed` szűrőn, a tiltott parancs ki sem megy.
+/// Az automatikus lekérdezés csak olvas. Mode 04 kizárólag külön, egyszeri javítási műveletben mehet ki.
 /// Minden hívás a főszálon történik (a CoreBluetooth is a főszálon hív vissza).
 final class ElmSession {
     typealias Step = (_ done: @escaping () -> Void) -> Void
@@ -43,7 +43,12 @@ final class ElmSession {
     /// Frissen online lett az ECU: a következő ciklus elején protokoll, PID lista, VIN
     private var needsOnlineSetup = false
     /// Időtúllépés után a késve érkező válasz ('>' promptig) eldobandó
-    private var dropNextPrompt = false
+    var onDesync: (() -> Void)?
+    private var maintenance: (() -> Void)?
+    private var repairCompletion: ((String) -> Void)?
+    private var repairReport: RepairReport?
+    private var repairCar = 0
+    private var allowSingleClear = false
     private let started = Date()
 
     // Időzítés
@@ -70,6 +75,9 @@ final class ElmSession {
 
     func stop() {
         running = false
+        maintenance = nil
+        allowSingleClear = false
+        if repairCompletion != nil { finishRepair("unknown", tr("Megszakadt a kapcsolat. Ne ismételd meg ellenőrzés nélkül.", "Connection lost. Read the report before retrying.")) }
         timeoutItem?.cancel()
         let p = pending
         pending = nil
@@ -85,10 +93,6 @@ final class ElmSession {
         }
         let text = String(rx[..<end])
         rx = String(rx[rx.index(after: end)...])
-        if dropNextPrompt {
-            dropNextPrompt = false
-            return
-        }
         finish(text)
     }
 
@@ -96,8 +100,10 @@ final class ElmSession {
 
     private func send(_ cmd: String, timeout: TimeInterval = 1.5, _ handle: @escaping (String) -> Void) {
         guard running, let peripheral else { handle("STOPPED"); return }
-        // Csak olvasó parancs mehet ki az autó felé.
-        guard Elm.isAllowed(cmd) else { handle("BLOCKED"); return }
+        guard pending == nil else { handle("BUSY"); return }
+        let permittedClear = cmd == "04" && allowSingleClear
+        allowSingleClear = false
+        guard Elm.isAllowed(cmd) || permittedClear else { handle("BLOCKED"); return }
         rx = ""
         pending = handle
         let item = DispatchWorkItem { [weak self] in self?.finish(nil) }
@@ -120,10 +126,17 @@ final class ElmSession {
         guard let handle = pending else { return }
         pending = nil
         timeoutItem?.cancel()
-        if text != nil { lastReply = Date() } else { dropNextPrompt = true }
-        let r = (text ?? rx).replacingOccurrences(of: "SEARCHING...", with: "")
+        // A missing prompt loses request/reply alignment. Reconnect instead of accepting a delayed reply.
+        guard let text else {
+            stop()
+            handle("TIMEOUT")
+            onDesync?()
+            return
+        }
+        lastReply = Date()
+        let r = text.replacingOccurrences(of: "SEARCHING...", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        handle(text == nil && r.isEmpty ? "" : r)
+        handle(r)
     }
 
     private func query(_ cmd: String, timeout: TimeInterval = 1.5, _ handle: @escaping (String) -> Void) -> Step {
@@ -157,6 +170,11 @@ final class ElmSession {
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
             guard let self, self.running else { return }
             self.tCycle = Date()
+            if let operation = self.maintenance {
+                self.maintenance = nil
+                operation()
+                return
+            }
             self.run(self.plan()) { [weak self] in
                 self?.emit()
                 self?.nextCycle()
@@ -451,5 +469,118 @@ final class ElmSession {
         packet.vin = vin
         packet.tripKm = (tripKm * 100).rounded() / 100
         onPacket(packet)
+    }
+}
+
+// MARK: - Explicit repair follow-up (never part of the polling plan)
+extension ElmSession {
+    func requestClear(car: Int, expectedVIN: String, completion: @escaping (String) -> Void) {
+        guard running, elmReady, ecuOnline, repairCompletion == nil,
+              CarStore.validVIN(expectedVIN), !VehicleMonitor.shared.demoActive else {
+            completion(tr("A törléshez élő, VIN-nel azonosított kapcsolat kell.", "Clearing requires a live connection and a verified VIN.")); return
+        }
+        repairCar = car
+        repairReport = RepairReport(vin: expectedVIN)
+        repairCompletion = completion
+        maintenance = { [weak self] in self?.prepareClear(expectedVIN: expectedVIN) }
+    }
+
+    private func prepareClear(expectedVIN: String) {
+        var verifiedVIN: String?
+        var stored: [String]?
+        let commands = ["0902", "03", "07", "0A", "0101", "020200", "020C00", "020D00", "020500", "020400"]
+        let steps = commands.map { cmd in
+            query(cmd, timeout: 4) { [weak self] reply in
+                guard let self else { return }
+                self.repairReport?.before[cmd] = reply
+                if cmd == "0902" { verifiedVIN = Elm.vin(reply) }
+                if cmd == "03" { stored = Elm.confirmedDTCs(reply, isCan: self.isCan) }
+            }
+        }
+        run(steps) { [weak self] in
+            guard let self else { return }
+            guard verifiedVIN == expectedVIN, let stored, self.stillAuthorized else {
+                self.finishRepair("refused", tr("A VIN vagy a hibakódlista nem ellenőrizhető. Nem küldtünk törlést.", "VIN or fault list could not be verified. No clear command sent.")); return
+            }
+            self.repairReport?.originalCodes = stored
+            self.checkClearConditions()
+        }
+    }
+
+    private var stillAuthorized: Bool {
+        running && CarStore.activeId == repairCar && !VehicleMonitor.shared.demoActive &&
+            AppSettings.shared.vin == repairReport?.vin
+    }
+
+    private func checkClearConditions() {
+        var voltage: Double?
+        var stopped = false
+        var engineOff = false
+        var sampled = Date.distantPast
+        run([
+            query("ATRV") { voltage = Elm.voltage($0) },
+            query("010D") { stopped = Elm.stoppedReply($0, pid: "0D", bytes: 1); sampled = Date() },
+            query("010C") { engineOff = Elm.stoppedReply($0, pid: "0C", bytes: 2) }
+        ]) { [weak self] in
+            guard let self else { return }
+            guard self.stillAuthorized, stopped, engineOff, Date().timeIntervalSince(sampled) < 4,
+                  let voltage, (12.0...15.0).contains(voltage), var report = self.repairReport else {
+                self.finishRepair("refused", tr("Álló autó, leállított motor, bekapcsolt gyújtás és 12–15 V szükséges. Nem küldtünk törlést.", "Requires a stationary car, engine off, ignition on and 12–15 V. No clear command sent.")); return
+            }
+            report.status = "sent"
+            report.before["voltage"] = String(voltage)
+            self.repairReport = report
+            do { try RepairStore.save(report, car: self.repairCar) }
+            catch { self.finishRepair("refused", tr("Nem sikerült az előzetes mentés. Nem küldtünk törlést.", "Backup failed. No clear command sent.")); return }
+            // One-shot capability is consumed by send(), including on failure. Never automatically retried.
+            self.allowSingleClear = true
+            self.send("04", timeout: 5) { [weak self] reply in
+                guard let self, self.repairCompletion != nil else { return }
+                self.repairReport?.after["04"] = reply
+                guard Elm.clearAcknowledged(reply) else {
+                    self.finishRepair("unknown", tr("A törlés eredménye nem igazolt. Újraolvasás szükséges; nincs automatikus ismétlés.", "Clear result is unconfirmed. Read diagnostics again; no automatic retry.")); return
+                }
+                self.verifyClear()
+            }
+        }
+    }
+
+    private func verifyClear() {
+        var confirmed: [String]?
+        run(["03", "07", "0A", "0101"].map { cmd in
+            query(cmd, timeout: 4) { [weak self] reply in
+                guard let self else { return }
+                self.repairReport?.after[cmd] = reply
+                if cmd == "03" {
+                    confirmed = Elm.confirmedDTCs(reply, isCan: self.isCan)
+                    if let confirmed { self.dtcs = confirmed; self.packet.freeze = nil; self.freezeValid = false }
+                }
+                if cmd == "07" { self.packet.pendingCodes = Elm.confirmedDTCs(reply, isCan: self.isCan, prefix: "47") ?? [] }
+                if cmd == "0A" { self.packet.permanentCodes = Elm.confirmedDTCs(reply, isCan: self.isCan, prefix: "4A") ?? [] }
+                if cmd == "0101" { self.packet.mon = Elm.pid(reply, 0x01, count: 4)?.map(Int.init) }
+            }
+        }) { [weak self] in
+            guard let self else { return }
+            let status = confirmed.map { $0.isEmpty ? "verified" : "remaining" } ?? "acknowledged"
+            self.finishRepair(status, confirmed == nil
+                ? tr("Az ECU nyugtázott, a visszaolvasás nem teljes. Ellenőrizd újra.", "ECU acknowledged; read-back incomplete. Check again.")
+                : tr("Visszaolvasás kész. A törlés nem javítja meg a hibát; az állandó kódok megmaradhatnak.", "Read-back complete. Clearing does not repair the fault; permanent codes may remain."))
+        }
+    }
+
+    private func finishRepair(_ status: String, _ message: String) {
+        guard let completion = repairCompletion else { return }
+        repairCompletion = nil
+        maintenance = nil
+        allowSingleClear = false
+        var result = message
+        if var report = repairReport {
+            report.status = status; report.detail = message
+            do { try RepairStore.save(report, car: repairCar) }
+            catch { result += tr(" Az eredmény mentése sikertelen.", " Saving the result failed.") }
+        }
+        repairReport = nil
+        completion(result)
+        if running { emit(); nextCycle() }
     }
 }

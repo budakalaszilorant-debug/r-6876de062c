@@ -143,4 +143,43 @@ defer { try? FileManager.default.removeItem(at: safety) }
 let safetyData = try Data(contentsOf: safety)
 let safetyHash = try CloudPayload.hash(safetyData)
 expect(safetyHash == firstHash, "safety copy contains the complete pre-restore garage")
+// Per-car extras survive full backup/restore and remain isolated.
+let extrasCar = CarStore.activeId
+let style = CarStyle(accent: "mint", photo: "photo-test", order: ["trip", "status"], hidden: ["tools"])
+try GaragePlus.save(style, key: "style")
+var handover = Handover(person: "Test", startKm: 100, startFuel: 50, note: "Before")
+handover.endKm = 125; handover.end = Date(); handover.endFuel = 40
+try GaragePlus.save([handover], key: "handovers")
+expect(handover.distance == 25, "handover distance")
+var repair = RepairReport(vin: "WF012345678901234")
+repair.originalCodes = ["P0300"]; repair.status = "verified"
+try RepairStore.save(repair, car: extrasCar)
+RepairStore.observe(["P0300", "P0420"])
+expect(RepairStore.all().first?.returnedCodes == ["P0300"], "only original faults count as recurrence")
+let extrasBackup = Backup.makeData()!
+try db.checkedExecute("DELETE FROM garage_plus")
+try extrasBackup.write(to: file)
+_ = try Backup.restore(from: file)
+expect(GaragePlus.load(CarStyle.self, key: "style")?.accent == "mint", "style restored")
+expect(GaragePlus.load([Handover].self, key: "handovers")?.first?.distance == 25, "handover restored")
+expect(RepairStore.all().first?.returnedCodes == ["P0300"], "repair report restored")
+expect(GaragePlus.load(CarStyle.self, key: "style", car: -1) == nil, "extras car isolation")
+settings.activate(extrasCar)
+expect(settings.carAccent == "mint" && settings.dashOrder.first == .trip, "per-car appearance activated")
+
+var samples: [DrivingSample] = (0..<6).map { n in
+    DrivingSample(id: n, date: Date(timeIntervalSince1970: Double(n)*1000), km: 10, speed: 35,
+        idleFraction: 0.1, consumption: n == 5 ? 9 : 6, startTemp: 15,
+        warmSeconds: n == 5 ? 700 : 400, coverage: 0.98, source: "pid")
+}
+expect(DrivingBaseline.compare(samples, warmup: false)?.elevated == true, "consumption deviation with sufficient peers")
+expect(DrivingBaseline.compare(samples, warmup: true)?.count == 5, "warm-up comparison")
+expect(DrivingBaseline.compare(Array(samples.suffix(5)), warmup: false) == nil, "insufficient history suppressed")
+samples[5].source = "maf"
+expect(DrivingBaseline.compare(samples, warmup: false) == nil, "mixed measurement sources suppressed")
+samples[5].source = "pid"; samples[5].coverage = 0.4
+expect(DrivingBaseline.compare(samples, warmup: false) == nil, "partial telemetry suppressed")
+samples[5].coverage = 1; samples[5].startTemp = 60
+expect(DrivingBaseline.compare(samples, warmup: true) == nil, "different starting temperature suppressed")
+
 print("Garage integration checks passed: \(checks)")

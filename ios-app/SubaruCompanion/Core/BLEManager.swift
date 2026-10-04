@@ -3,7 +3,7 @@ import CoreBluetooth
 import Combine
 
 /// Bluetooth LE kapcsolat egy bolti OBD dugóval (ELM327 kompatibilis, pl. Vgate iCar Pro BLE).
-/// Az app maga kérdezi le az autót (`ElmSession`), kizárólag olvasó parancsokkal.
+/// Az app maga kérdezi le az autót (`ElmSession`), olvasó parancsokkal és külön jóváhagyott hibakódtörléssel.
 final class BLEManager: NSObject, ObservableObject {
     static let shared = BLEManager()
 
@@ -24,6 +24,16 @@ final class BLEManager: NSObject, ObservableObject {
     let packets = PassthroughSubject<VehiclePacket, Never>()
     /// Diagnosztika: hány adatcsomag készült a dugó válaszaiból
     private(set) var receivedCount = 0
+
+    @Published private(set) var clearingFaults = false
+    func clearFaults(completion: @escaping (String) -> Void) {
+        guard !clearingFaults, let session else { completion(tr("Nincs kapcsolat.", "Not connected.")); return }
+        clearingFaults = true
+        session.requestClear(car: CarStore.activeId, expectedVIN: AppSettings.shared.vin ?? "") { [weak self] result in
+            self?.clearingFaults = false
+            completion(result)
+        }
+    }
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
@@ -100,6 +110,10 @@ final class BLEManager: NSObject, ObservableObject {
             self?.packets.send(packet)
         }
         session = s
+        s.onDesync = { [weak self, weak p] in
+            guard let self, let p else { return }
+            self.central.cancelPeripheralConnection(p)
+        }
         s.start()
     }
 }

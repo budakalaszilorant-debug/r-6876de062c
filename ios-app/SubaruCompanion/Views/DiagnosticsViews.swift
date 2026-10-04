@@ -16,6 +16,7 @@ struct DiagnosticsView: View {
     @State private var showCheck = UserDefaults.standard.bool(forKey: "uiHealth")  // képernyőképekhez
     @State private var detail: DTCEntry?
     @State private var showAllHistory = false
+    @State private var showRepair = false
 
     private var p: VehiclePacket? { monitor.packet }
     private var stored: [String] { p?.faultCodes ?? [] }
@@ -30,6 +31,12 @@ struct DiagnosticsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 statusHero
+                Button { showRepair = true } label: {
+                    Card {
+                        Label(tr("Javítás követése és hibakódtörlés", "Repair follow-up and fault clearing"), systemImage: "wrench.and.screwdriver")
+                            .foregroundStyle(Theme.accent)
+                    }
+                }.buttonStyle(.plain)
 
                 Button { showCheck = true } label: {
                     Card {
@@ -65,6 +72,7 @@ struct DiagnosticsView: View {
             }
             .padding(16)
         }
+        .sheet(isPresented: $showRepair) { RepairClearView() }
         .sheet(isPresented: $showCheck) { HealthCheckView() }
         .sheet(item: $detail) { DTCDetailSheet(entry: $0) }
         .onAppear { history = DTC.history() }

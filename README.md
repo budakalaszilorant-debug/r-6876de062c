@@ -2,7 +2,7 @@
 
 iPhone app, ami egy bolti **Bluetooth LE OBD2 dugón** keresztül olvassa az autó adatait
 (pl. Vgate iCar Pro BLE / Bluetooth 4.0). Más hardver nem kell.
-A rendszer csak olvas: az app a hibatörlést és minden írási parancsot letilt, mielőtt a dugóhoz érne.
+Az automatikus adatgyűjtés csak olvas. Külön, kézzel megerősített javítási műveletként elérhető a tárolt emissziós hibakódok törlése (Mode 04). Minden más író parancs továbbra is tiltott.
 
 ## Mappák
 
@@ -78,3 +78,14 @@ készít, és telefonra telepíthető csomagot (`telefonra-ipa`) állít elő, a
 - A dugó parkoláskor alszik, ezért az éjszakai akkufeszültség nem mérhető.
 - Az indításkori feszültségesés csak akkor mérhető, ha az app fut indításkor.
 - Az app adatgyűjtéséhez futnia kell (háttérben is elég).
+
+
+## Saját autó, átadás és javítás követése
+
+- **Eltérésfigyelő:** a legutóbbi út fogyasztását és bemelegedését legalább öt hasonló korábbi úthoz hasonlítja. Minimum 90% adatteljeség, hasonló táv, átlagsebesség, alapjárati arány és indulási hőfok szükséges. PID- és MAF-alapú fogyasztást nem kever. Az appban kikapcsolható. Új mérési történetet gyűjt; korábbi utakból nem talál ki hiányzó hőfokadatot.
+- **Autóátadás:** név, dátum, ellenőrzött kilométeróra, opcionális tankszint, megjegyzés és fotó átadáskor és visszavételkor. Összesíti a megtett távot és az időszak naplózott kiadásait.
+- **Élő tevékenység:** autónév, bemelegedés és becsült hátralévő idő, menetadatok, parkolóóra. Friss adat nélkül nem mutat régi sebességet élőként. Új tevékenységet csak előtérben indít; a parkolási értesítések ettől függetlenül ütemezettek.
+- **Saját kezdőképernyő:** autónként fotó, szín, kártyasorrend és láthatóság. A fejlécen szerkeszthető. Új, saját rajzolt Garázs ikon.
+- **Javítás követése:** a Diagnosztika képernyőről. Friss VIN-egyezés, nulla fordulat és sebesség, 12–15 V adapterfeszültség szükséges. Előzetes ECU-válaszmentés nélkül nem küld törlést. A Mode 04 parancs egyszeri, kapcsolatvesztésnél nincs újraküldés. Utána tárolt/pending/permanent kódok és readiness visszaolvasása; későbbi kódvisszatérés jelölése. Ez nem ABS/légzsák szervizeszköz és nem motorhangolás.
+
+A hibakódtörlés az ECU freeze frame és readiness adatait is törölheti; az app jelentése nem állítható vissza az ECU-ba. A mentett jelentés megosztható. Az új adatok és tömörített, metaadat nélküli fotók a helyi SQLite `garage_plus` táblában vannak, így a teljes JSON/Supabase-mentés és az autónkénti törlés is kezeli őket. Régi mentések továbbra is visszaállíthatók. Valódi adapteres és autós ellenőrzés szükséges; a CI nem helyettesíti azt.

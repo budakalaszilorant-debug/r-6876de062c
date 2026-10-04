@@ -69,26 +69,39 @@ final class AppSettings: ObservableObject {
 
     /// Műszerfal: a részek sorrendje és az elrejtettek
     @Published var dashOrder: [DashSection] = DashSection.allCases {
-        didSet { d.set(dashOrder.map(\.rawValue), forKey: "dashOrder") }
+        didSet { saveStyle() }
     }
     @Published var dashHidden: Set<DashSection> = [] {
-        didSet { d.set(dashHidden.map(\.rawValue), forKey: "dashHidden") }
+        didSet { saveStyle() }
     }
     var dashVisible: [DashSection] { dashOrder.filter { !dashHidden.contains($0) } }
+
+    @Published var carAccent = "blue" { didSet { saveStyle() } }
+    @Published var carPhoto: String? { didSet { saveStyle() } }
+    @Published var styleError: String?
+    @Published var featBaseline = true { didSet { d.set(featBaseline, forKey: "featBaseline") } }
+
+    private func saveStyle() {
+        guard !loadingCar, activeCarId > 0 else { return }
+        do {
+            try GaragePlus.save(CarStyle(accent: carAccent, photo: carPhoto, order: dashOrder.map(\.rawValue), hidden: dashHidden.map(\.rawValue)), key: "style", car: activeCarId)
+            styleError = nil
+        } catch { styleError = tr("A megjelenés mentése nem sikerült.", "Could not save appearance.") }
+    }
 
     /// Első indítás beállítása megtörtént
     @Published var onboarded = false { didSet { d.set(onboarded, forKey: "onboarded") } }
 
     /// Mentésbe kerülő beállítás kulcsok (az autók adatai az adatbázisban vannak)
     static let backupKeys = [
-        "activeCarId", "lang", "fuelPrice", "onboarded", "dashOrder", "dashHidden",
+        "featBaseline", "activeCarId", "lang", "fuelPrice", "onboarded", "dashOrder", "dashHidden",
         "featParkingTimer", "featLeftRunning", "featMonthly", "featRange", "featBatteryHealth", "featIdle",
         "featLiveActivity", "featAutoFill", "featOverheatEarly", "featAlternator", "featTripCost", "askCarOnLaunch", "featSmartOil", "featFrost"
     ]
 
     private init() {
         d.register(defaults: [
-            "lang": "hu", "fuelPrice": 620.0,
+            "featBaseline": true, "lang": "hu", "fuelPrice": 620.0,
             "featParkingTimer": true, "featLeftRunning": true, "featMonthly": true,
             "featRange": true, "featBatteryHealth": true, "featIdle": true,
             "featLiveActivity": true, "featAutoFill": true, "featOverheatEarly": true,
@@ -117,6 +130,8 @@ final class AppSettings: ObservableObject {
         featTripCost = d.bool(forKey: "featTripCost")
         askCarOnLaunch = d.bool(forKey: "askCarOnLaunch")
 
+        featBaseline = d.bool(forKey: "featBaseline")
+        loadingCar = true
         let hidden = Set((d.stringArray(forKey: "dashHidden") ?? []).compactMap(DashSection.init(rawValue:)))
         var order = (d.stringArray(forKey: "dashOrder") ?? []).compactMap(DashSection.init(rawValue:))
         for s in DashSection.allCases where !order.contains(s) { order.append(s) }  // új rész egy frissítés után
@@ -140,6 +155,16 @@ final class AppSettings: ObservableObject {
         odometerKm = car.odometerKm
         odometerSet = car.odometerSet
         vin = car.vin
+        let legacyOrder = d.stringArray(forKey: "dashOrder") ?? DashSection.allCases.map(\.rawValue)
+        let legacyHidden = d.stringArray(forKey: "dashHidden") ?? []
+        let style = GaragePlus.load(CarStyle.self, key: "style", car: car.id) ?? CarStyle(order: legacyOrder, hidden: legacyHidden)
+        carAccent = CarStyle.colors.contains(style.accent) ? style.accent : "blue"
+        carPhoto = style.photo
+        var order: [DashSection] = []
+        for key in style.order { if let section = DashSection(rawValue: key), !order.contains(section) { order.append(section) } }
+        for section in DashSection.allCases where !order.contains(section) { order.append(section) }
+        dashOrder = order
+        dashHidden = Set(style.hidden.compactMap(DashSection.init(rawValue:)))
         loadingCar = false
         lastFuelPrice = (d.object(forKey: CarStore.key("fuelPrice", car: car.id)) as? Double) ?? 620
     }

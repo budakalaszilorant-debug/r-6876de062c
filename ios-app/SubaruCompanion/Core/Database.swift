@@ -107,6 +107,7 @@ final class Database {
         // Fenntartási költségek és a tankolás kútja
         execute("CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT, car_id INTEGER, date REAL, category TEXT, amount REAL, note TEXT)")
         execute("ALTER TABLE fills ADD COLUMN station TEXT")
+        execute("CREATE TABLE IF NOT EXISTS garage_plus(car_id INTEGER NOT NULL, key TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(car_id,key))")
     }
 
     @discardableResult

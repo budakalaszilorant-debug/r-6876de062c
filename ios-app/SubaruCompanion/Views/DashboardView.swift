@@ -12,6 +12,8 @@ struct DashboardView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                CarHomeHeader()
+                BaselineBanner()
                 Card(padding: 18) {
                     VStack(spacing: 6) {
                         RpmDial(rpm: p?.rpm, speed: p?.vehicleSpeed)

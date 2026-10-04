@@ -67,5 +67,22 @@ check(abs((Elm.voltage("14.2V") ?? 0) - 14.2) < 0.01, "volt")
 check(abs((Elm.voltage("ATRV\r12.6V") ?? 0) - 12.6) < 0.01, "volt echo")
 check(Elm.voltage("?") == nil && Elm.voltage("") == nil && Elm.voltage("0.0V") == nil, "volt invalid")
 
+// Repair safety: malformed, absent, moving and mixed ECU responses never count as stopped.
+check(Elm.stoppedReply("41 0C 00 00", pid: "0C", bytes: 2), "engine-off positive response")
+check(Elm.stoppedReply("410D00", pid: "0D", bytes: 1), "stationary positive response")
+for r in ["", "NO DATA", "410C", "410CZZZZ", "410C000", "410C0001", "410C0000\r410C0100", "410C0000\r7F0111"] {
+    check(!Elm.stoppedReply(r, pid: "0C", bytes: 2), "unsafe engine reply rejected \(r)")
+}
+check(Elm.clearAcknowledged("44\r440000"), "multiple positive clear acknowledgements")
+for r in ["", "OK", "NO DATA", "7F0411", "4401", "44\r7F0411", "440", "0444"] {
+    check(!Elm.clearAcknowledged(r), "ambiguous clear ack rejected \(r)")
+}
+check(Elm.confirmedDTCs("4300", isCan: true) == [], "positive empty code list")
+check(Elm.confirmedDTCs("43010300", isCan: true) == ["P0300"], "confirmed code")
+check(Elm.confirmedDTCs("430000", isCan: false) == [], "legacy positive empty list")
+for r in ["", "NO DATA", "4301", "430", "4300ZZ", "4302FFFF", "4300\r7F0311"] {
+    check(Elm.confirmedDTCs(r, isCan: true) == nil, "no false successful verification \(r)")
+}
+
 print("\(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)

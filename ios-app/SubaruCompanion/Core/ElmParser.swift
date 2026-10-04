@@ -3,6 +3,35 @@ import Foundation
 /// ELM327 parancs-szűrő és válasz-értelmező a közvetlenül csatlakoztatott OBD dugóhoz.
 /// Feltételezés: ATE0 (nincs echo), ATL0, ATS0 (nincs szóköz), ATH0 (nincs fejléc).
 enum Elm {
+    /// Safety checks never use the forgiving display parser (invalid hex must not become zero).
+    static func stoppedReply(_ response: String, pid: String, bytes: Int) -> Bool {
+        let rows = lines(response)
+        return !rows.isEmpty && rows.allSatisfy { line in
+            line.hasPrefix("41" + pid) && line.count >= 4 + bytes * 2 &&
+                line.count.isMultiple(of: 2) && line.dropFirst(4).allSatisfy { $0 == "0" }
+        }
+    }
+
+    static func clearAcknowledged(_ response: String) -> Bool {
+        let rows = lines(response)
+        return !rows.isEmpty && rows.allSatisfy { $0.hasPrefix("44") && $0.count.isMultiple(of: 2) && $0.dropFirst(2).allSatisfy { $0 == "0" } }
+    }
+
+    static func confirmedDTCs(_ response: String, isCan: Bool, prefix: String = "43") -> [String]? {
+        let rows = lines(response)
+        guard !rows.isEmpty, !isError(response), rows.allSatisfy({ raw in
+            let line = stripFrame(raw)
+            return !line.isEmpty && line.allSatisfy(isHex)
+        }) else { return nil }
+        let messages = rows.contains(where: isFrameLine)
+            ? [rows.filter(isFrameLine).map(stripFrame).joined()] : rows
+        guard !messages.isEmpty, messages.allSatisfy({ m in
+            guard m.hasPrefix(prefix), m.count.isMultiple(of: 2) else { return false }
+            if isCan { return m.count >= 4 && m.count >= 4 + Int(hexByte(m, 2)) * 4 }
+            return m.count >= 6 && (m.count - 2).isMultiple(of: 4)
+        }) else { return nil }
+        return dtcs(response, isCan: isCan, max: 128, replyPrefix: prefix)
+    }
     // MARK: Biztonsági whitelist: csak olvasó parancsok mehetnek ki
 
     private static let atWhitelist: Set<String> = ["ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATAT1", "ATRV", "ATDPN", "ATI"]

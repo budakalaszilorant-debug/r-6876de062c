@@ -4,9 +4,9 @@ import Foundation
 /// A fájl a telefonon marad, hacsak a felhasználó maga el nem küldi valahova.
 enum Backup {
     static let tables = ["cars", "trips", "trip_points", "fills", "parking", "voltage_log", "events",
-                         "battery_health", "service_plan", "service_done", "reminder_dates", "dtc_hist", "expenses"]
+                         "battery_health", "service_plan", "service_done", "reminder_dates", "dtc_hist", "expenses", "garage_plus"]
     /// Később bevezetett táblák: régebbi mentésből hiányozhatnak
-    private static let optionalTables: Set<String> = ["expenses"]
+    private static let optionalTables: Set<String> = ["expenses", "garage_plus"]
 
     enum RestoreError: Error { case unreadable, wrongFormat }
 

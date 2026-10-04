@@ -2,75 +2,79 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-/// Menet közbeni élő tevékenység: zárolási képernyő és Dynamic Island.
 struct DriveLiveActivity: Widget {
-    private let accent = Color(red: 0.25, green: 0.56, blue: 1.00)
-    private let ok = Color(red: 0.24, green: 0.84, blue: 0.47)
-
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: DriveActivityAttributes.self) { context in
-            lockScreen(context.state)
-                .padding(16)
-                .activityBackgroundTint(Color.black.opacity(0.75))
-                .activitySystemActionForegroundColor(.white)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label(context.state.carName, systemImage: symbol(context.state)).font(.headline)
+                    Spacer()
+                    Text(title(context)).font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    mainValue(context).font(.system(size: 30, weight: .semibold, design: .rounded)).monospacedDigit()
+                    Spacer()
+                    if context.state.mode != "parking" {
+                        Text(context.isStale ? "—" : String(format: "%.1f km", context.state.tripKm)).font(.headline)
+                    }
+                }
+                if context.state.mode == "warmup", !context.isStale {
+                    ProgressView(value: context.state.progress).tint(.cyan)
+                    if let eta = context.state.etaMinutes {
+                        Text(context.state.hu ? "Kb. \(eta) perc a beállított hőfokig" : "About \(eta) min to target temperature").font(.caption)
+                    }
+                }
+            }
+            .padding(16).activityBackgroundTint(.black.opacity(0.85)).activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    value("\(context.state.speed)", "km/h", .white)
+                    Label(context.state.carName, systemImage: symbol(context.state)).font(.caption).lineLimit(1)
                 }
-                DynamicIslandExpandedRegion(.trailing) {
-                    value(context.state.coolant.map { "\($0)" } ?? "—", "°C", context.state.warm ? ok : accent)
-                }
+                DynamicIslandExpandedRegion(.trailing) { Text(title(context)).font(.caption).foregroundStyle(.secondary) }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(bottomLine(context.state))
-                        .font(.system(size: 14, weight: .medium, design: .rounded).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.7))
+                    HStack {
+                        mainValue(context).font(.title2.monospacedDigit())
+                        Spacer()
+                        if context.state.mode == "warmup", !context.isStale {
+                            ProgressView(value: context.state.progress).tint(.cyan).frame(width: 80)
+                        } else if context.state.mode == "drive", !context.isStale {
+                            Text(String(format: "%.1f km", context.state.tripKm)).font(.callout.monospacedDigit())
+                        }
+                    }
                 }
             } compactLeading: {
-                Text("\(context.state.speed)")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
+                Image(systemName: context.isStale && context.state.mode != "parking" ? "antenna.radiowaves.left.and.right.slash" : symbol(context.state)).foregroundStyle(.cyan)
             } compactTrailing: {
-                Text(context.state.coolant.map { "\($0)°" } ?? "—")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(context.state.warm ? ok : accent)
+                mainValue(context, compact: true).font(.caption.monospacedDigit()).frame(maxWidth: 62)
             } minimal: {
-                Text("\(context.state.speed)")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                Image(systemName: symbol(context.state)).foregroundStyle(.cyan)
             }
         }
     }
 
-    private func bottomLine(_ s: DriveActivityAttributes.ContentState) -> String {
-        let km = String(format: "%.1f km", s.tripKm)
-        guard let c = s.consumption else { return km }
-        return km + String(format: "  ·  %.1f l/100", c)
+    private func symbol(_ state: DriveActivityAttributes.ContentState) -> String {
+        state.mode == "parking" ? "parkingsign.circle.fill" : state.mode == "warmup" ? "thermometer.medium" : "car.fill"
     }
 
-    private func lockScreen(_ s: DriveActivityAttributes.ContentState) -> some View {
-        HStack(alignment: .center) {
-            value("\(s.speed)", "km/h", .white)
-            Spacer()
-            VStack(spacing: 2) {
-                Text("Subaru")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.5))
-                Text(bottomLine(s))
-                    .font(.system(size: 13, weight: .medium, design: .rounded).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.75))
-            }
-            Spacer()
-            value(s.coolant.map { "\($0)" } ?? "—", "°C", s.warm ? ok : accent)
-        }
+    private func title(_ context: ActivityViewContext<DriveActivityAttributes>) -> String {
+        let s = context.state
+        if s.mode == "parking" { return s.hu ? "Parkolóóra" : "Parking timer" }
+        if context.isStale { return s.hu ? "Nincs friss adat" : "Data unavailable" }
+        return s.mode == "warmup" ? (s.hu ? "Bemelegedés" : "Warming up") : (s.hu ? "Úton" : "Driving")
     }
 
-    private func value(_ text: String, _ unit: String, _ color: Color) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 3) {
-            Text(text)
-                .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(color)
-            Text(unit)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.6))
+    @ViewBuilder private func mainValue(_ context: ActivityViewContext<DriveActivityAttributes>, compact: Bool = false) -> some View {
+        let s = context.state
+        if s.mode == "parking", let end = s.parkingEnd {
+            if context.isStale { Text(s.hu ? "Lejárt" : "Expired") }
+            else { Text(timerInterval: context.attributes.started...max(context.attributes.started, end), countsDown: true) }
+        } else if context.isStale {
+            Text("—")
+        } else if s.mode == "warmup" {
+            Text(s.coolant.map { "\($0)°C" } ?? "—")
+        } else {
+            Text(compact ? "\(s.speed)" : "\(s.speed) km/h")
         }
     }
 }

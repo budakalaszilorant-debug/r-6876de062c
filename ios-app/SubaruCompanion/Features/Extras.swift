@@ -32,7 +32,7 @@ final class ParkingTimer: ObservableObject {
         NotificationManager.shared.cancel(ids: ids)
         let total = Double(minutes) * 60
         let finish = Date().addingTimeInterval(total)
-        if car == CarStore.activeId { end = finish }
+        if car == CarStore.activeId { end = finish; DriveActivity.shared.parking(until: finish) }
         UserDefaults.standard.set(finish.timeIntervalSince1970, forKey: key)
 
         // Előjelzés: 10 perccel a vége előtt, rövid időnél arányosan korábban.
@@ -50,6 +50,7 @@ final class ParkingTimer: ObservableObject {
     }
 
     func cancel() {
+        DriveActivity.shared.endParking()
         end = nil
         UserDefaults.standard.removeObject(forKey: key)
         NotificationManager.shared.cancel(ids: ids)

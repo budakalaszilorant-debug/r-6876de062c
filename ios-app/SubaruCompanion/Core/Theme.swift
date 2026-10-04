@@ -10,7 +10,15 @@ enum Theme {
     static let text2     = Color.white.opacity(0.62)
     static let text3     = Color.white.opacity(0.38)
 
-    static let accent    = Color(red: 0.25, green: 0.56, blue: 1.00)  // Subaru kék
+    static var accent: Color { accentColor(AppSettings.shared.carAccent) }
+    static func accentColor(_ name: String) -> Color {
+        switch name {
+        case "mint": return Color(red: 0.25, green: 0.85, blue: 0.72)
+        case "purple": return Color(red: 0.70, green: 0.57, blue: 1)
+        case "orange": return Color(red: 1, green: 0.63, blue: 0.32)
+        default: return Color(red: 0.25, green: 0.56, blue: 1)
+        }
+    }
     static let ok        = Color(red: 0.24, green: 0.84, blue: 0.47)
     static let warn      = Color(red: 1.00, green: 0.76, blue: 0.20)
     static let bad       = Color(red: 1.00, green: 0.30, blue: 0.27)

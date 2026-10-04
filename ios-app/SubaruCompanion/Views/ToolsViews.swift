@@ -5,7 +5,7 @@ import Charts
 
 struct ToolsCard: View {
     enum Tool: String, Identifiable, CaseIterable {
-        case trip, costs, mechanic, sale
+        case trip, costs, mechanic, sale, baseline, handover
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -13,6 +13,8 @@ struct ToolsCard: View {
             case .costs: return tr("Költségek", "Costs")
             case .mechanic: return tr("Üzenet szerelőnek", "Message a mechanic")
             case .sale: return tr("Eladási adatlap", "Sale sheet")
+            case .baseline: return tr("Eltérésfigyelő", "Deviation monitor")
+            case .handover: return tr("Autóátadás", "Car handover")
             }
         }
         var icon: String {
@@ -21,6 +23,8 @@ struct ToolsCard: View {
             case .costs: return "banknote"
             case .mechanic: return "wrench.and.screwdriver"
             case .sale: return "doc.text"
+            case .baseline: return "chart.xyaxis.line"
+            case .handover: return "key.horizontal"
             }
         }
     }
@@ -60,6 +64,8 @@ struct ToolsCard: View {
             case .costs: CostsView()
             case .mechanic: MechanicMessageView()
             case .sale: SaleSheetView()
+            case .baseline: BaselineView()
+            case .handover: HandoverView()
             }
         }
     }
