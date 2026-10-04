@@ -334,6 +334,7 @@ struct FeatureToggles: View {
 
     var body: some View {
         Section(tr("Funkciók", "Features")) {
+            toggle(tr("Eltérésfigyelő a saját utakhoz képest", "Deviation monitoring against your trips"), "chart.xyaxis.line", $settings.featBaseline)
             toggle(tr("Parkolóóra", "Parking timer"), "parkingsign.circle", $settings.featParkingTimer)
             toggle(tr("Járva maradt motor jelzés", "Engine left running alert"), "exclamationmark.triangle", $settings.featLeftRunning)
             toggle(tr("Havi összesítő", "Monthly summary"), "chart.bar", $settings.featMonthly)

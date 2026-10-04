@@ -113,6 +113,12 @@ final class VehicleMonitor: ObservableObject {
             .sink { [weak self] in self?.handle($0) }
             .store(in: &bag)
 
+        settings.$featLiveActivity.dropFirst().receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                if enabled { self?.startLiveActivityIfNeeded() }
+                else { DriveActivity.shared.end() }
+            }.store(in: &bag)
+
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.tick()
         }
@@ -207,7 +213,7 @@ final class VehicleMonitor: ObservableObject {
 
     private func activityState(_ p: VehiclePacket) -> DriveActivityAttributes.ContentState {
         let t = recorder.active
-        return .init(speed: Int(p.vehicleSpeed ?? 0),
+        return .init(speed: p.vehicleSpeed.map { Int($0) },
                      coolant: p.coolantTemp.map { Int($0) },
                      warm: (p.coolantTemp ?? 0) >= CarSpec.warmTemp,
                      tripKm: ((t?.distanceKm ?? 0) * 10).rounded() / 10,
@@ -452,7 +458,11 @@ final class VehicleMonitor: ObservableObject {
         refreshAverages()
         if finished != nil { Task { @MainActor in await CloudSync.shared.autoBackupIfNeeded() } }
         checkAlternator()
-        DriveActivity.shared.end()
+        if promptParking, settings.featParkingTimer, settings.featLiveActivity {
+            DriveActivity.shared.parked()
+        } else {
+            DriveActivity.shared.end()
+        }
         UserDefaults.standard.set(normCoolant, forKey: CarStore.key("normCoolant"))
 
         // Leparkolás után felajánljuk a parkolóórát; az értesítés gombjaival az app megnyitása nélkül indítható.

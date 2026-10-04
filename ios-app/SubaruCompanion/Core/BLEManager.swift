@@ -205,7 +205,7 @@ extension BLEManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {
-        guard let data = ch.value else { return }
+        guard p === peripheral, ch === dongleNotify, error == nil, let data = ch.value else { return }
         session?.receive(data)
     }
 }

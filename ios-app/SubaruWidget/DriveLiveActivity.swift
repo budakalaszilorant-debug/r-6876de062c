@@ -44,7 +44,7 @@ struct DriveLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                Image(systemName: context.isStale && context.state.mode != "parking" ? "antenna.radiowaves.left.and.right.slash" : symbol(context.state)).foregroundStyle(.cyan)
+                Image(systemName: context.isStale && !["parking", "parked"].contains(context.state.mode) ? "antenna.radiowaves.left.and.right.slash" : symbol(context.state)).foregroundStyle(.cyan)
             } compactTrailing: {
                 mainValue(context, compact: true).font(.caption.monospacedDigit()).frame(maxWidth: 62)
             } minimal: {
@@ -54,11 +54,12 @@ struct DriveLiveActivity: Widget {
     }
 
     private func symbol(_ state: DriveActivityAttributes.ContentState) -> String {
-        state.mode == "parking" ? "parkingsign.circle.fill" : state.mode == "warmup" ? "thermometer.medium" : "car.fill"
+        ["parking", "parked"].contains(state.mode) ? "parkingsign.circle.fill" : state.mode == "warmup" ? "thermometer.medium" : "car.fill"
     }
 
     private func title(_ context: ActivityViewContext<DriveActivityAttributes>) -> String {
         let s = context.state
+        if s.mode == "parked" { return s.hu ? "Leparkoltál" : "Parked" }
         if s.mode == "parking" { return s.hu ? "Parkolóóra" : "Parking timer" }
         if context.isStale { return s.hu ? "Nincs friss adat" : "Data unavailable" }
         return s.mode == "warmup" ? (s.hu ? "Bemelegedés" : "Warming up") : (s.hu ? "Úton" : "Driving")
@@ -66,7 +67,9 @@ struct DriveLiveActivity: Widget {
 
     @ViewBuilder private func mainValue(_ context: ActivityViewContext<DriveActivityAttributes>, compact: Bool = false) -> some View {
         let s = context.state
-        if s.mode == "parking", let end = s.parkingEnd {
+        if s.mode == "parked" {
+            Text(compact ? "P" : (s.hu ? "Parkolóóra az appban" : "Set a timer in the app")).font(.caption)
+        } else if s.mode == "parking", let end = s.parkingEnd {
             if context.isStale { Text(s.hu ? "Lejárt" : "Expired") }
             else { Text(timerInterval: context.attributes.started...max(context.attributes.started, end), countsDown: true) }
         } else if context.isStale {
@@ -74,7 +77,7 @@ struct DriveLiveActivity: Widget {
         } else if s.mode == "warmup" {
             Text(s.coolant.map { "\($0)°C" } ?? "—")
         } else {
-            Text(compact ? "\(s.speed)" : "\(s.speed) km/h")
+            Text(s.speed.map { compact ? "\($0)" : "\($0) km/h" } ?? "—")
         }
     }
 }

@@ -19,11 +19,12 @@ final class DriveActivity {
     var isActive: Bool { activity != nil }
 
     func start(tripStart: Date, state: DriveActivityAttributes.ContentState) {
+        if let current = activity, current.activityState == .ended || current.activityState == .dismissed { activity = nil }
         if let current = activity, current.content.state.carID != state.carID { end() }
         if activity != nil { update(state, force: true); return }
         guard UIApplication.shared.applicationState == .active,
               ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        let content = ActivityContent(state: state, staleDate: state.parkingEnd ?? Date().addingTimeInterval(45))
+        let content = ActivityContent(state: state, staleDate: state.parkingEnd ?? Date().addingTimeInterval(state.mode == "parked" ? 600 : 45))
         activity = try? Activity.request(attributes: DriveActivityAttributes(started: tripStart),
                                          content: content, pushType: nil)
         lastState = state
@@ -36,7 +37,7 @@ final class DriveActivity {
         guard force || (age >= 3 && (state != lastState || age >= 25)) else { return }
         lastState = state
         lastUpdate = Date()
-        let content = ActivityContent(state: state, staleDate: state.parkingEnd ?? Date().addingTimeInterval(45))
+        let content = ActivityContent(state: state, staleDate: state.parkingEnd ?? Date().addingTimeInterval(state.mode == "parked" ? 600 : 45))
         Task { await activity.update(content) }
     }
 
@@ -49,8 +50,20 @@ final class DriveActivity {
         start(tripStart: Date(), state: state)
     }
 
+    /// Keep the existing activity available for a parking-timer action from a notification.
+    /// Starting a new one in the background is not permitted by iOS.
+    func parked() {
+        guard let activity else { return }
+        var state = activity.content.state
+        state.mode = "parked"
+        state.speed = nil
+        state.coolant = nil
+        state.etaMinutes = nil
+        update(state, force: true)
+    }
+
     func endParking() {
-        if activity?.content.state.mode == "parking" { end() }
+        if ["parking", "parked"].contains(activity?.content.state.mode ?? "") { end() }
     }
 
     func end() {
