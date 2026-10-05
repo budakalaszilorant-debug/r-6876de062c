@@ -20,6 +20,7 @@ struct VehiclePacket: Equatable {
     var intakeTemp: Double?
     var maf: Double?
     var faultCodes: [String] = []
+    var diagnosticsReadAt: Date?
     /// Kialakulóban lévő (még nem megerősített) és állandó hibakódok
     var pendingCodes: [String] = []
     var permanentCodes: [String] = []

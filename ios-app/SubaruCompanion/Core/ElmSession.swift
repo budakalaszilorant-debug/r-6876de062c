@@ -339,6 +339,7 @@ final class ElmSession {
                 guard let self, let c = Elm.dtcs(r, isCan: self.isCan, max: 10) else { return }
                 if c != self.dtcs { self.freezeValid = false }
                 self.dtcs = c
+                if Elm.confirmedDTCs(r, isCan: self.isCan) != nil { self.packet.diagnosticsReadAt = Date() }
                 if c.isEmpty { self.packet.freeze = nil; self.freezeValid = true }
             },
             when({ [weak self] in !(self?.freezeValid ?? true) }, freezeStep()),

@@ -47,14 +47,13 @@ regisztrációt, bejelentkezést, jelszó-visszaállítást és fióktörlést b
 Az autók, utak, költségek és beállítások PostgreSQL-ben tárolt, verziózott mentésekbe kerülnek.
 A beállítást lépésről lépésre a [Supabase útmutató](supabase/README.md) írja le.
 
-- Bejelentkezés után külön választás kapcsolja a helyi garázst a fiókhoz, vagy állítja vissza a felhőmásolatot.
+- Bejelentkezéskor automatikusan a fiók saját garázsa nyílik meg.
 - Offline minden adat SQLite-ba mentődik. Az automatikus szinkron induláskor, hálózat visszatérésekor,
-  az app futása alatt kétpercenként és háttérbe lépéskor próbálkozik, ha nincs OBD-kapcsolat vagy demo.
+  az app futása alatt kétpercenként és háttérbe lépéskor próbálkozik. Feltöltés OBD-kapcsolat mellett is lehetséges; visszaállítás csak álló, bontott kapcsolatnál, demo nélkül.
 - Két eszköz eltérő módosításai választást kérnek; nincs csendes felülírás vagy automatikus összevonás.
-- A legutóbbi 20 felhőváltozat visszaállítható, legfeljebb 20 MB-os mentésenként.
+- A szerver biztonsági célból 20 verziót őriz; ezekhez nincs külön előzménylista az appban. A mentés legfeljebb 20 MB.
 - Visszaállítás előtt külön helyi biztonsági másolat készül a `Backups/SafetyCopies` mappába.
-- A régi Google Drive-mentések külön letölthetők/importálhatók. Ehhez tartsd meg a korábbi
-  `GOOGLE_IOS_CLIENT_ID` beállítást. A Drive-on semmi nem törlődik és új feltöltés sem történik.
+- A fiók Google/Apple-belépése a Supabase szolgáltatói beállításait használja, nem a Google Drive-ot.
 
 A szinkron jelenleg egy teljes garázs változataival dolgozik. Családi megosztás és soronkénti,
 automatikus összefésülés nincs bekapcsolva. A bejelentkezési tokenek nem kerülnek a mentésekbe.
@@ -89,3 +88,14 @@ készít, és telefonra telepíthető csomagot (`telefonra-ipa`) állít elő, a
 - **Javítás követése:** a Diagnosztika képernyőről. Friss VIN-egyezés, nulla fordulat és sebesség, 12–15 V adapterfeszültség szükséges. Előzetes ECU-válaszmentés nélkül nem küld törlést. A Mode 04 parancs egyszeri, kapcsolatvesztésnél nincs újraküldés. Utána tárolt/pending/permanent kódok és readiness visszaolvasása; későbbi kódvisszatérés jelölése. Ez nem ABS/légzsák szervizeszköz és nem motorhangolás.
 
 A hibakódtörlés az ECU freeze frame és readiness adatait is törölheti; az app jelentése nem állítható vissza az ECU-ba. A mentett jelentés megosztható. Az új adatok és tömörített, metaadat nélküli fotók a helyi SQLite `garage_plus` táblában vannak, így a teljes JSON/Supabase-mentés és az autónkénti törlés is kezeli őket. Régi mentések továbbra is visszaállíthatók. Valódi adapteres és autós ellenőrzés szükséges; a CI nem helyettesíti azt.
+
+
+## Fiókonkénti garázs és egyszerűsített beállítások
+
+A bejelentkezett fiók automatikusan szinkronizál, külön kapcsoló és kézi szinkronizálás nélkül. A fiókműveletek az e-mail-címre koppintva nyílnak meg. A korábbi felhőverziók nincsenek a felületen; a szerver biztonsági verziózása megmarad. Valódi kétoldali ütközésnél továbbra is választás szükséges, az app nem dobja el csendben az egyik eszköz módosításait.
+
+A helyi garázstábla-váltás és tulajdonosváltás egy SQLite-tranzakció. Az inaktív fiókok mentése külön, nem exportált táblába kerül; a widgetek és értesítések fiókváltáskor ürülnek. A korábbi személyes garázs csak a hitelesített tulajdonosi e-mailnek migrálható. Friss telepítésen más felhasználó nem kap Ford/Opel mintautókat. A fiókonkénti fájlmentések az alkalmazás privát könyvtárában vannak; megosztásuk az appból indítható.
+
+Az eladási adatlap fényképes, többoldalas PDF, a saját napló összefoglalója. Elkülöníti a tulajdonosi bejegyzéseket és a dátumozott OBD-leolvasást; nem független állapotigazolás. A költségkategóriák teljes szélességű választólistában jelennek meg. A biztosítási lejárati emlékeztető megszűnt.
+
+Google/Apple szolgáltatói beállítások: [SOCIAL_LOGIN.md](supabase/SOCIAL_LOGIN.md).

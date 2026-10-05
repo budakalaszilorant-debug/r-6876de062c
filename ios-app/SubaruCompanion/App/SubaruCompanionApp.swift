@@ -15,7 +15,9 @@ struct SubaruCompanionApp: App {
         // Ha az iOS a háttérben indítja el az appot (BLE esemény), nincs ablak és nem fut a .task:
         // a kapcsolatot és a feldolgozást ezért itt indítjuk.
         _ = BLEManager.shared
-        VehicleMonitor.shared.start()
+        CloudSync.shared.restoreSignIn()
+        if CloudSync.shared.ready { VehicleMonitor.shared.start() }
+        if CloudSync.shared.signedIn && !CloudSync.shared.needsLink { BLEManager.shared.resumeAccountConnection() }
         // Képernyőkép-készítéshez (CI): "-uiDemo YES" indítási paraméterrel rögtön demo módban indul.
         if Self.screenshotMode { VehicleMonitor.shared.setDemo(true) }
     }
@@ -24,7 +26,15 @@ struct SubaruCompanionApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            Group {
+                if cloud.ready { RootView().id(cloud.accountViewID) }
+                else {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        if !cloud.status.isEmpty { Text(cloud.status).multilineTextAlignment(.center) }
+                    }.padding()
+                }
+            }
                 .environmentObject(settings)
                 .environmentObject(ble)
                 .environmentObject(monitor)

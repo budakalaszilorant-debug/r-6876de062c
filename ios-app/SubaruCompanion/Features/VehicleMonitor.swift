@@ -82,6 +82,7 @@ final class VehicleMonitor: ObservableObject {
     private var lastVoltageLog = Date.distantPast
     private var lastCodes: [String]?
     private var lastRepairObservation = ""
+    private var lastDiagnosticDate: Date?
     private var stoppedSince: Date?
     private var wasRunning = false
     private var lastServiceCheck = Date.distantPast
@@ -128,7 +129,7 @@ final class VehicleMonitor: ObservableObject {
     // MARK: - Csomag feldolgozás
 
     private func handle(_ p: VehiclePacket) {
-        guard !demoActive else { return }
+        guard BLEManager.shared.state == .connected, CarStore.activeId > 0, !demoActive else { return }
         process(p, demo: false)
     }
 
@@ -287,10 +288,23 @@ final class VehicleMonitor: ObservableObject {
                     level: .timeSensitive)
     }
 
+    func prepareAccountChange() {
+        if demoActive { setDemo(false) }
+        if recorder.active != nil { endTrip() }
+        BLEManager.shared.pauseForAccountChange()
+        DriveActivity.shared.end()
+        NotificationManager.shared.clearAccountNotifications()
+        WidgetSnapshot(voltage: nil, coolant: nil, engineRunning: false, updated: Date()).save()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     /// Mentés visszaállítása után minden nézet újratölt.
     func reloadAfterRestore() {
         packet = nil
         isLive = false
+        trip = nil
+        needsCarSelection = false; pendingVIN = nil; latestUnassignedPacket = nil
+        stoppedSince = nil; wasRunning = false; lastRepairObservation = ""; lastDiagnosticDate = nil
         lastPacketAt = nil
         selectedForConnection = false
         lastCodes = nil
@@ -629,6 +643,10 @@ final class VehicleMonitor: ObservableObject {
     }
 
     private func updateFaultCodes(_ p: VehiclePacket) {
+        if let date = p.diagnosticsReadAt, date != lastDiagnosticDate {
+            lastDiagnosticDate = date
+            try? GaragePlus.save(DiagnosticReading(date: date, codes: p.faultCodes), key: "diagnostic-reading")
+        }
         updatePendingCodes(p)
         guard p.ecu, p.faultCodes != lastCodes else { return }
         lastCodes = p.faultCodes

@@ -38,6 +38,9 @@ final class Database {
         values.isExcludedFromBackup = false
         try? u.setResourceValues(values)
         migrate()
+        execute("CREATE TABLE IF NOT EXISTS account_garages(owner TEXT PRIMARY KEY,payload TEXT NOT NULL)")
+        execute("CREATE TABLE IF NOT EXISTS account_state(id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL)")
+        execute("CREATE TABLE IF NOT EXISTS account_legacy_claim(owner TEXT NOT NULL)")
     }
 
     deinit { sqlite3_close(db) }

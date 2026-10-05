@@ -35,6 +35,19 @@ final class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    private var accountPaused = false
+    func resumeAccountConnection() {
+        accountPaused = false
+        startScanOrReconnect()
+    }
+    func pauseForAccountChange() {
+        accountPaused = true
+        central.stopScan()
+        teardown()
+        if let peripheral { central.cancelPeripheralConnection(peripheral) }
+        state = .off
+    }
+
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var session: ElmSession?
@@ -54,6 +67,7 @@ final class BLEManager: NSObject, ObservableObject {
 
     /// A mentett eszköz elfelejtése (pl. másik dugóra váltáskor); utána újra keres.
     func forgetDevice() {
+        accountPaused = false
         UserDefaults.standard.removeObject(forKey: Self.savedPeripheralKey)
         if let p = peripheral { central.cancelPeripheralConnection(p) }
         teardown()
@@ -62,7 +76,7 @@ final class BLEManager: NSObject, ObservableObject {
     }
 
     private func startScanOrReconnect() {
-        guard central.state == .poweredOn else { return }
+        guard !accountPaused, central.state == .poweredOn else { return }
 
         // Ismert eszköz: függő connect, az iOS akkor köt rá, amikor hatótávba ér (háttérben is).
         if let idString = UserDefaults.standard.string(forKey: Self.savedPeripheralKey),
@@ -122,6 +136,7 @@ extension BLEManager: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
         case .poweredOn:
+            guard !accountPaused else { return }
             // Visszaállított, már csatlakozott eszköz: újra feltérképezzük
             if let p = peripheral, p.state == .connected {
                 p.discoverServices(nil)
@@ -142,13 +157,14 @@ extension BLEManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDiscover p: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        guard !rejected.contains(p.identifier), isCandidate(p, advertisementData) else { return }
+        guard !accountPaused, !rejected.contains(p.identifier), isCandidate(p, advertisementData) else { return }
         central.stopScan()
         deviceName = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? p.name
         connect(p)
     }
 
     func centralManager(_ central: CBCentralManager, didConnect p: CBPeripheral) {
+        guard !accountPaused else { central.cancelPeripheralConnection(p); return }
         teardown()
         deviceName = p.name ?? deviceName
         p.discoverServices(nil)
@@ -161,6 +177,7 @@ extension BLEManager: CBCentralManagerDelegate {
             startScanOrReconnect()
             return
         }
+        guard !accountPaused else { state = .off; return }
         state = .connecting
         central.connect(p, options: nil)  // automatikus újracsatlakozás
     }

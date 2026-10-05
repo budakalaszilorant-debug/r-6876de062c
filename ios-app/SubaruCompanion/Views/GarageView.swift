@@ -188,9 +188,10 @@ private struct CarEditor: View {
                                  vin: normalizedVIN.isEmpty ? nil : normalizedVIN, fuel: fuel,
                                  tankL: tank, warmTemp: warm, redline: redline,
                                  odometerKm: Double(odometer) ?? 0, odometerSet: !odometer.isEmpty, template: template))
-        if id == AppSettings.shared.activeCarId { AppSettings.shared.activate(id) }
+        if id == AppSettings.shared.activeCarId || AppSettings.shared.activeCarId == 0 { AppSettings.shared.activate(id) }
         monitor.reloadAfterRestore()
         onSave()
+        Task { await CloudSync.shared.autoBackupIfNeeded() }
         dismiss()
     }
 }

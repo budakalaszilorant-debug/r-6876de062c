@@ -13,7 +13,6 @@ struct ReminderItem: Identifiable {
 enum Reminders {
     static let items: [ReminderItem] = [
         .init(id: "inspection", hu: "Műszaki vizsga", en: "Roadworthiness test", icon: "checkmark.seal"),
-        .init(id: "insurance", hu: "Kötelező biztosítás", en: "Liability insurance", icon: "shield"),
         .init(id: "vignette", hu: "Autópálya-matrica", en: "Motorway vignette", icon: "road.lanes"),
         .init(id: "firstaid", hu: "Elsősegély doboz", en: "First aid kit", icon: "cross.case"),
     ]
@@ -49,7 +48,9 @@ enum Reminders {
     static func reschedule() {
         let cars = CarStore.all()
         let cal = Calendar.current
+        let generation = AccountGarage.generation
         NotificationManager.shared.cancel(prefix: "reminder-") {
+            guard generation == AccountGarage.generation else { return }
             for car in cars {
                 schedule(car: car, cal: cal, prefixName: cars.count > 1)
             }

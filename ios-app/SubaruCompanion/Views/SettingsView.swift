@@ -85,11 +85,7 @@ struct SettingsView: View {
                     Button(tr("Eszköz elfelejtése, új keresése", "Forget device and search again")) { ble.forgetDevice() }
                 }
 
-                Section {
-                    row(tr("Adatkezelés", "Data"), cloud.signedIn && !cloud.needsLink ? tr("Telefon + Supabase-fiók", "Phone + Supabase account")
-                                                                     : tr("Csak a telefonon", "On this phone only"))
-                    row(tr("Autó vezérlése", "Car control"), tr("Csak kézi hibakódtörlés", "Manual fault clearing only"))
-                }
+
             }
             .scrollContentBackground(.hidden)
             .screenBackground()

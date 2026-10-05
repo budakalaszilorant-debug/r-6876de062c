@@ -11,7 +11,7 @@ enum Backup {
     enum RestoreError: Error { case unreadable, wrongFormat }
 
     private static var folder: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let docs = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AccountExports/" + AccountGarage.exportNamespace, isDirectory: true)
         let dir = docs.appendingPathComponent("Backups", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -92,6 +92,11 @@ enum Backup {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
         guard let data = try? Data(contentsOf: url) else { throw RestoreError.unreadable }
+        return try restore(data: data)
+    }
+
+    @discardableResult
+    static func restore(data: Data, beforeCommit: () throws -> Void = {}) throws -> Int {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tablesIn = root["tables"] as? [String: Any] else { throw RestoreError.wrongFormat }
 
@@ -115,11 +120,12 @@ enum Backup {
         let count = try db.transaction {
             var count = 0
             for name in tables { count += try db.replace(table: name, rows: incoming[name] ?? []) }
+            try beforeCommit()
             return count
         }
         // Preferences change only after every database write has committed.
         let defaults = UserDefaults.standard
-        for key in defaults.dictionaryRepresentation().keys where isCarStateKey(key) {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("car-") {
             defaults.removeObject(forKey: key)
         }
         if let state = root["carState"] as? [String: Any] {
@@ -128,6 +134,7 @@ enum Backup {
             }
         }
         for key in AppSettings.backupKeys {
+            defaults.removeObject(forKey: key)
             if let value = settings[key], !(value is NSNull) { defaults.set(value, forKey: key) }
         }
         AppSettings.shared.load()
@@ -137,13 +144,13 @@ enum Backup {
     private static func isCarStateKey(_ key: String) -> Bool {
         let parts = key.split(separator: "-", maxSplits: 2)
         let allowed: Set<String> = ["fuelPrice", "lastStopFuel", "lastStopAt", "lowRangeNotified", "warmStartId",
-                                   "seenStartId", "normCoolant", "suggestedFill", "lastChargeAvg", "alternatorNotified",
+                                   "lastHealthScore", "lastHealthDate", "seenStartId", "normCoolant", "suggestedFill", "lastChargeAvg", "alternatorNotified",
                                    "summaryMonth", "battWeakNotified", "parkTimerEnd"]
         return parts.count == 3 && parts[0] == "car" && Int(parts[1]) != nil && allowed.contains(String(parts[2]))
     }
 
     private static func validate(_ data: [String: [[String: Any]]]) throws {
-        guard let cars = data["cars"], !cars.isEmpty else { throw RestoreError.wrongFormat }
+        guard let cars = data["cars"] else { throw RestoreError.wrongFormat }
         var ids = Set<Int>()
         var vins = Set<String>()
         for car in cars {

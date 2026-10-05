@@ -29,7 +29,18 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if vSize == .compact {
+            if settings.activeCarId == 0 {
+                NavigationStack {
+                    List {
+                        Section {
+                            Label(tr("Üres a garázsod", "Your garage is empty"), systemImage: "car.2")
+                            Text(tr("Jelentkezz be a saját autóidhoz, vagy add hozzá az első autódat.", "Sign in to access your cars, or add your first car."))
+                            Button(tr("Autó hozzáadása", "Add car")) { showGarage = true }
+                        }
+                        CloudSection()
+                    }.navigationTitle(tr("Garázs", "Garage"))
+                }
+            } else if vSize == .compact {
                 // Fekvő telefon: teljes képernyős műszerfal
                 LandscapeDashboard()
             } else {
@@ -76,7 +87,7 @@ struct RootView: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: Binding(get: { !settings.onboarded }, set: { _ in })) {
+        .fullScreenCover(isPresented: Binding(get: { !settings.onboarded && settings.activeCarId > 0 }, set: { _ in })) {
             OnboardingView()
                 .preferredColorScheme(.dark)
         }

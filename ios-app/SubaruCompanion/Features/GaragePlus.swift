@@ -1,5 +1,10 @@
 import Foundation
 
+struct DiagnosticReading: Codable {
+    var date: Date
+    var codes: [String]
+}
+
 /// Small Codable documents keep photos, reports and preferences in the same atomic backup as trips.
 enum GaragePlus {
     static func load<T: Decodable>(_ type: T.Type, key: String, car: Int = CarStore.activeId) -> T? {

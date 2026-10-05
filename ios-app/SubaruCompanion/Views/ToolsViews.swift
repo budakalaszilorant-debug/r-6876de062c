@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import QuickLook
 
 // MARK: - Eszközök kártya (műszerfal)
 
@@ -215,6 +216,9 @@ struct MechanicMessageView: View {
 
 struct SaleSheetView: View {
     @State private var data = SaleSheetData.build()
+    @State private var pdf: URL?
+    @State private var preview: URL?
+    @State private var exportError: String?
 
     var body: some View {
         SheetFrame(title: tr("Eladási adatlap", "Sale sheet")) {
@@ -227,7 +231,7 @@ struct SaleSheetView: View {
             }
             HStack(spacing: 12) {
                 StatTile(label: tr("Km óra", "Odometer"), value: data.odometer.map(Fmt.km) ?? "—", unit: "km")
-                StatTile(label: tr("Átvilágítás", "Health"), value: data.health.map { "\($0.score)" } ?? "—", unit: "/100")
+                StatTile(label: tr("Rögzített utak", "Recorded trips"), value: "\(data.trips)", unit: tr("út", "trips"))
             }
             HStack(spacing: 12) {
                 StatTile(label: tr("Rögzített km", "Logged km"), value: Fmt.km(data.totalKm), unit: "km")
@@ -248,22 +252,31 @@ struct SaleSheetView: View {
                     }
                 }
             }
-            Label(data.activeCodes.isEmpty ? tr("Nincs aktív hibakód", "No active fault codes")
-                                           : tr("Aktív hibakód: ", "Active codes: ") + data.activeCodes.joined(separator: ", "),
-                  systemImage: data.activeCodes.isEmpty ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(data.activeCodes.isEmpty ? Theme.ok : Theme.warn)
-                .font(.system(size: 15, weight: .medium))
-            ShareLink(item: data.text) {
-                Label(tr("Adatlap megosztása", "Share sale sheet"), systemImage: "square.and.arrow.up")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(Theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            if let reading = data.diagnostic {
+                Label(reading.codes.isEmpty ? tr("A mentett leolvasásban nincs tárolt kód", "No stored codes in the saved reading") : reading.codes.joined(separator: ", "), systemImage: "doc.text.magnifyingglass")
+                    .foregroundStyle(Theme.text2)
+                Text(Fmt.date(reading.date)).font(.caption).foregroundStyle(Theme.text3)
+            } else {
+                Label(tr("Nincs mentett OBD-leolvasás", "No saved OBD reading"), systemImage: "questionmark.circle").foregroundStyle(Theme.text2)
             }
-            .buttonStyle(PressableStyle())
-            Text(tr("Minél régebb óta vezeted a naplót, annál többet ér az adatlap a vevő szemében.",
-                    "The longer the log, the more the sheet is worth to a buyer."))
-                .font(.system(size: 13)).foregroundStyle(Theme.text3)
+            if let pdf {
+                Button { preview = pdf } label: { Label(tr("PDF megtekintése", "Preview PDF"), systemImage: "doc.richtext") }
+                ShareLink(item: pdf) {
+                    Label(tr("PDF-adatlap megosztása", "Share PDF report"), systemImage: "square.and.arrow.up")
+                        .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 14))
+                }.buttonStyle(PressableStyle())
+            }
+            if let exportError { Text(exportError).foregroundStyle(Theme.bad) }
+            Text(tr("A PDF a saját naplódból készül; nem független állapotigazolás.", "The PDF comes from your own records; it is not an independent inspection."))
+                .font(.footnote).foregroundStyle(Theme.text3)
+        }
+        .quickLookPreview($preview)
+        .onAppear {
+            data = SaleSheetData.build()
+            do { pdf = try SaleReport.create(data) }
+            catch { exportError = tr("Nem sikerült a PDF készítése.", "Could not create the PDF.") }
         }
     }
 }
@@ -409,8 +422,17 @@ struct AddExpenseSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Picker(tr("Kategória", "Category"), selection: $category) {
-                    ForEach(ExpenseCategory.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
+                Section(tr("Kategória", "Category")) {
+                    ForEach(ExpenseCategory.allCases) { item in
+                        Button { category = item } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Image(systemName: item.icon).frame(width: 26)
+                                Text(item.label).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 4)
+                                if category == item { Image(systemName: "checkmark.circle.fill") }
+                            }.frame(minHeight: 32)
+                        }.accessibilityAddTraits(category == item ? .isSelected : [])
+                    }
                 }
                 HStack {
                     Text(tr("Összeg", "Amount"))

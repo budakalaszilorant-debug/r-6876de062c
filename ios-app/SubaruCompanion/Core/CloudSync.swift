@@ -2,11 +2,16 @@ import Foundation
 import UIKit
 import Network
 import Supabase
+import AuthenticationServices
 
 /// SQLite works offline; the server checks revisions before accepting any write.
 @MainActor
 final class CloudSync: ObservableObject {
     static let shared = CloudSync()
+    @Published private(set) var ready = false
+    @Published private(set) var accountViewID = UUID()
+    @Published private(set) var googleEnabled = false
+    @Published private(set) var appleEnabled = false
     @Published private(set) var email: String?
     @Published private(set) var busy = false
     @Published private(set) var versions: [CloudVersion] = []
@@ -33,10 +38,6 @@ final class CloudSync: ObservableObject {
     var signedIn: Bool { owner != nil }
     var remoteDate: Date? { versions.first?.created_at }
     var canRestore: Bool { VehicleMonitor.shared.canManageGarage && !VehicleMonitor.shared.demoActive }
-    var autoBackup: Bool {
-        get { (defaults.object(forKey: "supabaseAutoSync") as? Bool) ?? true }
-        set { objectWillChange.send(); defaults.set(newValue, forKey: "supabaseAutoSync") }
-    }
 
     private init() {
         let raw = (Bundle.main.object(forInfoDictionaryKey: "SupabaseURL") as? String) ?? ""
@@ -50,9 +51,11 @@ final class CloudSync: ObservableObject {
     }
 
     func restoreSignIn() {
-        guard !started, let client else { return }
+        guard !started else { return }
         started = true
-        applySession(client.auth.currentSession)
+        applySession(client?.auth.currentSession)
+        guard let client else { return }
+        Task { await loadProviders(); await autoBackupIfNeeded() }
         authTask = Task { [weak self] in
             for await (event, session) in client.auth.authStateChanges {
                 guard let self else { return }
@@ -81,21 +84,59 @@ final class CloudSync: ObservableObject {
 
     private func applySession(_ session: Session?) {
         let id = session?.user.id
-        email = session?.user.email
-        guard owner != id else { return }
-        owner = id
-        versions = []; conflict = false; checkpoint = CloudCheckpoint(); lastUpload = nil
-        if let key = accountKey, let data = defaults.data(forKey: key),
-           let saved = try? JSONDecoder().decode(CloudCheckpoint.self, from: data) { checkpoint = saved }
-        // Never upload the previous account's local garage to a newly signed-in account.
-        needsLink = id != nil && defaults.string(forKey: "garage-cloud-owner") != accountKey
-        lastUpload = checkpoint.lastSync
-        status = needsLink ? tr("Válaszd ki, melyik garázst használod.", "Choose which garage to use.") : ""
+        guard owner != id || !ready else { email = session?.user.email; return }
+        ready = false
+        VehicleMonitor.shared.prepareAccountChange()
+        let key = id.map { "garage-cloud-\(server?.host ?? "")-\($0.uuidString)" }
+        do {
+            let verifiedEmail = session?.user.emailConfirmedAt != nil ? session?.user.email : nil
+            try AccountGarage.activate(owner: key, verifiedEmail: verifiedEmail)
+            owner = id; email = session?.user.email
+            versions = []; conflict = false; checkpoint = CloudCheckpoint(); lastUpload = nil
+            if let key, let data = defaults.data(forKey: key),
+               let saved = try? JSONDecoder().decode(CloudCheckpoint.self, from: data) { checkpoint = saved }
+            needsLink = id != nil && defaults.string(forKey: "garage-cloud-owner") != key
+            lastUpload = checkpoint.lastSync
+            status = ""
+            VehicleMonitor.shared.reloadAfterRestore()
+            accountViewID = UUID()
+            ready = true
+            Task { await autoBackupIfNeeded() }
+        } catch {
+            owner = nil; email = nil
+            status = tr("A fiók garázsát nem sikerült megnyitni. Indítsd újra az appot; az adatok megmaradtak.", "Could not open this account's garage. Restart the app; data has been preserved.")
+        }
+    }
+
+    func loadProviders() async {
+        guard let server else { return }
+        var request = URLRequest(url: server.appendingPathComponent("auth/v1/settings"))
+        request.setValue(publicKey, forHTTPHeaderField: "apikey")
+        request.timeoutInterval = 15
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let external = root["external"] as? [String: Bool] else { return }
+        googleEnabled = external["google"] == true
+        appleEnabled = external["apple"] == true
+    }
+
+    func signIn(provider: Provider) async {
+        guard !busy, canRestore, let client else { return }
+        busy = true
+        do {
+            let session = try await client.auth.signInWithOAuth(provider: provider, redirectTo: Self.callback,
+                queryParams: provider == .google ? [(name: "prompt", value: "select_account")] : [])
+            applySession(session)
+        } catch {
+            if (error as NSError).code != ASWebAuthenticationSessionError.canceledLogin.rawValue { report(error) }
+        }
+        busy = false
+        await autoBackupIfNeeded()
     }
 
     func signIn(email: String, password: String, register: Bool) async {
-        guard !busy, let client else { return }
-        busy = true; defer { busy = false }
+        guard !busy, canRestore, let client else { return }
+        busy = true; defer { busy = false; Task { await autoBackupIfNeeded() } }
         do {
             if register {
                 let result = try await client.auth.signUp(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password, redirectTo: Self.callback)
@@ -126,18 +167,19 @@ final class CloudSync: ObservableObject {
         } catch { report(error) }
     }
 
-    func changePassword(_ password: String) async {
-        guard !busy, let client else { return }
+    func changePassword(_ password: String) async -> Bool {
+        guard !busy, let client else { return false }
         busy = true; defer { busy = false }
         do {
             try await client.auth.update(user: UserAttributes(password: password))
             passwordRecovery = false
             message = tr("A jelszó megváltozott.", "Password updated.")
-        } catch { report(error) }
+            return true
+        } catch { report(error); return false }
     }
 
     func signOut() async {
-        guard !busy, let client else { return }
+        guard !busy, canRestore, let client else { return }
         busy = true; defer { busy = false }
         // Supabase clears the local session before its network logout request.
         try? await client.auth.signOut(scope: .local)
@@ -146,15 +188,17 @@ final class CloudSync: ObservableObject {
     }
 
     func deleteAccount() async {
-        guard !busy, let id = owner, let client else { return }
+        guard !busy, canRestore, let id = owner, let client else { return }
         busy = true; defer { busy = false }
         do {
+            let deletedKey = accountKey
             _ = try await request("rpc/garage_delete_account", owner: id, body: [:])
             if let key = accountKey { defaults.removeObject(forKey: key) }
             defaults.removeObject(forKey: "garage-cloud-owner")
             try? await client.auth.signOut(scope: .local)
             applySession(nil)
-            message = tr("A fiók és a felhőadatai törölve. A telefon adatai megmaradtak.", "Account and cloud data deleted. Data on this phone is preserved.")
+            if let deletedKey { try Database.shared.checkedExecute("DELETE FROM account_garages WHERE owner=?", [deletedKey]) }
+            message = tr("A fiók és a felhőadatai törölve.", "Account and cloud data deleted.")
         } catch { report(error) }
     }
 
@@ -172,7 +216,11 @@ final class CloudSync: ObservableObject {
     }
 
     func autoBackupIfNeeded() async {
-        guard autoBackup, signedIn, !busy, !needsLink, !conflict, canRestore else { return }
+        guard ready, signedIn, !busy, !conflict, !VehicleMonitor.shared.demoActive, !BLEManager.shared.clearingFaults else { return }
+        if needsLink {
+            await connectAccountGarage()
+            return
+        }
         var background = UIBackgroundTaskIdentifier.invalid
         background = UIApplication.shared.beginBackgroundTask {
             if background != .invalid {
@@ -186,15 +234,44 @@ final class CloudSync: ObservableObject {
         await upload(silent: true)
     }
 
+    private func connectAccountGarage() async {
+        guard !busy, let id = owner, needsLink, canRestore else { return }
+        busy = true; defer { busy = false }
+        do {
+            try await refresh(id)
+            guard owner == id, canRestore else { throw Failure.accountChanged }
+            if let head = versions.first {
+                try await download(head, owner: id, originalHash: CloudPayload.hash(snapshot()))
+            } else {
+                let session = try await client?.auth.session
+                guard owner == id else { throw Failure.accountChanged }
+                AccountGarage.seedPersonalCars(verifiedEmail: session?.user.emailConfirmedAt != nil ? session?.user.email : nil)
+                VehicleMonitor.shared.reloadAfterRestore()
+                if !CarStore.all().isEmpty {
+                    let version = try await commit(snapshot(), expected: 0, owner: id)
+                    saveCheckpoint(version)
+                } else {
+                    needsLink = false
+                    defaults.set(accountKey, forKey: "garage-cloud-owner")
+                }
+            }
+            status = tr("Szinkronizálva", "Synced")
+        } catch { report(error, silent: true) }
+    }
+
     /// A changed local copy is the durable upload queue. A lost response is safe to retry.
     func upload(silent: Bool = false) async {
         guard !busy, let id = owner, !needsLink, !conflict else { return }
         busy = true; defer { busy = false }
         do {
-            guard canRestore else { throw Failure.activeTrip }
+            guard !VehicleMonitor.shared.demoActive, !BLEManager.shared.clearingFaults else { return }
             let local = try snapshot(), hash = try CloudPayload.hash(local)
             try await refresh(id)
             let head = versions.first
+            if CarStore.all().isEmpty {
+                if let head, canRestore { try await download(head, owner: id, originalHash: hash) }
+                return
+            }
             switch CloudDecision.decide(linked: true, base: checkpoint.revision, baseHash: checkpoint.fingerprint,
                                         localHash: hash, remoteRevision: head?.revision, remoteHash: head?.fingerprint) {
             case .upload:
@@ -202,6 +279,7 @@ final class CloudSync: ObservableObject {
                 saveCheckpoint(version)
                 versions = Array(([version] + versions.filter { $0.revision != version.revision }).prefix(20))
             case .download:
+                guard canRestore else { return }
                 if let head { try await download(head, owner: id, originalHash: hash) }
             case .conflict, .link:
                 conflict = true
@@ -326,7 +404,7 @@ final class CloudSync: ObservableObject {
         switch error {
         case Failure.conflict:
             conflict = true
-            status = tr("Új felhőváltozat érkezett. Frissítsd a mentések listáját, majd válassz.", "Cloud data changed. Refresh the versions, then choose.")
+            status = tr("Két eszközön változott a garázs. Nyisd meg a fiókodat az egyeztetéshez.", "Both devices changed the garage. Open your account to resolve it.")
         case Failure.activeTrip: status = tr("Állítsd le a demót és bontsd az OBD-kapcsolatot a szinkronizáláshoz.", "Stop demo mode and disconnect OBD before syncing.")
         case Failure.localChanged: status = tr("Közben változtak a helyi adatok. Nem írtuk felül őket; próbáld újra.", "Local data changed. Nothing was replaced; please retry.")
         case Failure.tooLarge: status = tr("A mentés nagyobb 20 MB-nál. Készíts fájlmentést; a felhőmásolat nem változott.", "Backup exceeds 20 MB. Export a file; the cloud copy is unchanged.")

@@ -256,8 +256,8 @@ extension Database {
             execute("INSERT OR IGNORE INTO dtc_hist SELECT ?, code, first_seen, last_seen, active, snap FROM dtc_log", [old])
         }
 
-        let fiesta = insertCar(template: .fiesta, name: CarTemplate.fiesta.name, vin: nil, odometer: 0, odometerSet: false)
-        insertCar(template: .combo, name: CarTemplate.combo.name, vin: nil, odometer: 0, odometerSet: false)
-        d.set(fiesta, forKey: "activeCarId")
+        if let first = query("SELECT id FROM cars ORDER BY id LIMIT 1", map: { $0.int(0) }).first {
+            d.set(first, forKey: "activeCarId")
+        }
     }
 }

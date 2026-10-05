@@ -20,6 +20,9 @@ let defaults = UserDefaults.standard
 for key in ["onboarded", "odoSet", "odo", "vin", "activeCarId"] { defaults.removeObject(forKey: key) }
 let settings = AppSettings.shared
 let db = Database.shared
+expect(CarStore.all().isEmpty, "fresh install does not reveal personal cars")
+try AccountGarage.activate(owner: "test-balazs", verifiedEmail: AccountGarage.personalEmail)
+AccountGarage.seedPersonalCars(verifiedEmail: AccountGarage.personalEmail)
 let cars = CarStore.all()
 expect(cars.count == 2, "clean install has exactly two profiles")
 let fiesta = cars.first { $0.template == "ford_fiesta_14" }!
@@ -92,12 +95,12 @@ defaults.set(false, forKey: "odoSet")
 defaults.set(false, forKey: "onboarded")
 do {
     let migrated = Database(path: oldPath)
-    expect(migrated.query("SELECT COUNT(*) FROM cars") { $0.int(0) }.first == 3, "service-only history preserved in legacy profile")
+    expect(migrated.query("SELECT COUNT(*) FROM cars") { $0.int(0) }.first == 1, "service-only history preserved in legacy profile")
     expect(migrated.query("SELECT last_km FROM service_done WHERE item='oil'") { $0.double(0) }.first == 100000, "legacy service migrated")
 }
 do {
     let reopened = Database(path: oldPath)
-    expect(reopened.query("SELECT COUNT(*) FROM cars") { $0.int(0) }.first == 3, "migration idempotent")
+    expect(reopened.query("SELECT COUNT(*) FROM cars") { $0.int(0) }.first == 1, "migration idempotent")
 }
 
 // Old JSON backups must retain service/reminder/DTC histories, not silently ignore them.
@@ -188,5 +191,22 @@ samples[5].source = "pid"; samples[5].coverage = 0.4
 expect(DrivingBaseline.compare(samples, warmup: false) == nil, "partial telemetry suppressed")
 samples[5].coverage = 1; samples[5].startTemp = 60
 expect(DrivingBaseline.compare(samples, warmup: true) == nil, "different starting temperature suppressed")
+
+// A second authenticated account must start empty, never inherit the active garage.
+let ownerNames = CarStore.all().map(\.name)
+try AccountGarage.activate(owner: "test-brother", verifiedEmail: "brother@example.com")
+AccountGarage.seedPersonalCars(verifiedEmail: "brother@example.com")
+expect(CarStore.all().isEmpty && settings.activeCarId == 0, "different account has an empty garage")
+expect(DTC.history().isEmpty && RepairStore.all().isEmpty, "account switch hides diagnostic histories")
+expect(settings.carPhoto == nil && UserDefaults.standard.object(forKey: CarStore.key("lastHealthDate")) == nil, "account switch clears preferences")
+_ = CarStore.create(from: .fiesta, name: "Brother car")
+try AccountGarage.activate(owner: nil, verifiedEmail: nil)
+expect(CarStore.all().isEmpty, "signed-out guest does not see account cars")
+try AccountGarage.activate(owner: "test-balazs", verifiedEmail: AccountGarage.personalEmail)
+expect(CarStore.all().map(\.name) == ownerNames, "original garage survives account switching")
+expect(RepairStore.all().first?.returnedCodes == ["P0300"], "original repair history survives account switching")
+try AccountGarage.activate(owner: "test-brother", verifiedEmail: "brother@example.com")
+expect(CarStore.all().map(\.name) == ["Brother car"], "second account restores only its own garage")
+try AccountGarage.activate(owner: "test-balazs", verifiedEmail: AccountGarage.personalEmail)
 
 print("Garage integration checks passed: \(checks)")

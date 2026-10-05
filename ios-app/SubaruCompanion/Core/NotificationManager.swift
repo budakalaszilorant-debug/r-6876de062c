@@ -32,6 +32,12 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         ])
     }
 
+    func clearAccountNotifications() {
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+        lastSent.removeAll()
+    }
+
     func requestPermission() async {
         // .criticalAlert csak Apple entitlementtel működik, anélkül az iOS figyelmen kívül hagyja.
         _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge, .criticalAlert])

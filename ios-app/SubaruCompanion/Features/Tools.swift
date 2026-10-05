@@ -163,6 +163,7 @@ struct SaleSheetData {
     var services: [(name: String, km: Double, date: Date)]
     var health: (score: Int, date: Date)?
     var activeCodes: [String]
+    var diagnostic: DiagnosticReading?
 
     static func build() -> SaleSheetData {
         let s = AppSettings.shared
@@ -184,7 +185,8 @@ struct SaleSheetData {
             trips: tripRow?.0 ?? 0, totalKm: tripRow?.1 ?? 0, fills: fills.count,
             avgL100: FuelStore.stats(fills).avgL100, services: services,
             health: HealthCheck.lastSaved(),
-            activeCodes: DTC.history().filter(\.active).map(\.code))
+            activeCodes: GaragePlus.load(DiagnosticReading.self, key: "diagnostic-reading")?.codes ?? [],
+            diagnostic: GaragePlus.load(DiagnosticReading.self, key: "diagnostic-reading"))
     }
 
     var text: String {
