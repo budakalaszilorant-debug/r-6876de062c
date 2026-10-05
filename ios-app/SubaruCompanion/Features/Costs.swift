@@ -207,6 +207,7 @@ enum FrostCheck {
         }()
         guard grade == .weak || grade == .fair || weakening else { return }
 
+        let generation = AccountGarage.generation
         let lat = (spot.coordinate.latitude * 10).rounded() / 10
         let lon = (spot.coordinate.longitude * 10).rounded() / 10
         var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
@@ -225,6 +226,7 @@ enum FrostCheck {
 
         let name = AppSettings.shared.carName
         await MainActor.run {
+            guard generation == AccountGarage.generation else { return }
             NotificationManager.shared.send(
                 key: "frost", title: tr("❄️ Fagy és gyengülő akku", "❄️ Frost and a weakening battery"),
                 body: tr("Ma éjjel \(Int(tomorrow))°C várható. A(z) \(name) akkuja gyengül: holnap reggel nehezen indulhat. Ha teheted, töltsd fel, vagy tedd fedett helyre.",

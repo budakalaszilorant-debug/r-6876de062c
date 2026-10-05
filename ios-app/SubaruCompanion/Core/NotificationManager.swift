@@ -75,10 +75,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     /// Az adott előtagú függő értesítések törlése, utána `then` fut (a főszálon).
     func cancel(prefix: String, then: @escaping () -> Void) {
+        let generation = AccountGarage.generation
         center.getPendingNotificationRequests { requests in
-            let ids = requests.map(\.identifier).filter { $0.hasPrefix(prefix) }
-            self.center.removePendingNotificationRequests(withIdentifiers: ids)
-            DispatchQueue.main.async(execute: then)
+            DispatchQueue.main.async {
+                guard generation == AccountGarage.generation else { return }
+                let ids = requests.map(\.identifier).filter { $0.hasPrefix(prefix) }
+                self.center.removePendingNotificationRequests(withIdentifiers: ids)
+                then()
+            }
         }
     }
 
@@ -88,6 +92,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     private func makeContent(title: String, body: String, level: Level) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
+        content.userInfo["account"] = AccountGarage.current ?? "legacy"
         content.title = title
         content.body = body
         content.badge = 1
@@ -112,6 +117,8 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let action = response.actionIdentifier
         if action.hasPrefix("PARK_"), let minutes = Int(action.dropFirst(5)) {
             DispatchQueue.main.async {
+                guard let account = response.notification.request.content.userInfo["account"] as? String,
+                      account == AccountGarage.current else { return }
                 let carId = response.notification.request.content.userInfo["carId"] as? Int
                 ParkingTimer.shared.start(minutes: minutes, carID: carId)
             }
@@ -130,6 +137,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     // Előtérben is jelenjen meg banner formában.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completion: @escaping (UNNotificationPresentationOptions) -> Void) {
+        guard (notification.request.content.userInfo["account"] as? String) == AccountGarage.current else { completion([]); return }
         completion([.banner, .sound, .list])
     }
 }

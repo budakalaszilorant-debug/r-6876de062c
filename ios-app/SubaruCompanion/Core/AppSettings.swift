@@ -145,7 +145,7 @@ final class AppSettings: ObservableObject {
     func activate(_ id: Int) {
         guard let car = CarStore.get(id) ?? CarStore.all().first else {
             loadingCar = true
-            activeCarId = 0; carName = tr("Saját garázs", "My garage"); vin = nil
+            activeCarId = 0; carName = language == .hu ? "Saját garázs" : "My garage"; vin = nil
             odometerKm = 0; odometerSet = false; fuelType = .petrol
             tankLiters = 50; warmTemp = 88; redline = 6000
             carPhoto = nil; carAccent = "blue"; dashOrder = DashSection.allCases; dashHidden = []
