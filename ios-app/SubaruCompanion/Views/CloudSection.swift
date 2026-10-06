@@ -100,13 +100,8 @@ struct CloudLoginView: View {
             Form {
                 Section {
                     Button(tr("Folytatás Google-fiókkal", "Continue with Google")) {
-                        Task { await cloud.signIn(provider: .google); if cloud.signedIn { dismiss() } }
+                        Task { await cloud.signInWithGoogle(); if cloud.signedIn { dismiss() } }
                     }.disabled(cloud.busy || !cloud.googleEnabled || !cloud.canRestore)
-                    if cloud.appleEnabled {
-                        Button { Task { await cloud.signIn(provider: .apple); if cloud.signedIn { dismiss() } } } label: {
-                            Label(tr("Folytatás Apple-fiókkal", "Continue with Apple"), systemImage: "apple.logo")
-                        }.disabled(cloud.busy || !cloud.canRestore)
-                    }
                     if !cloud.googleEnabled { Text(tr("A Google-belépés jelenleg nem érhető el.", "Google sign-in is currently unavailable.")).font(.footnote).foregroundStyle(.secondary) }
                 }
                 Section {

@@ -53,7 +53,7 @@ A beállítást lépésről lépésre a [Supabase útmutató](supabase/README.md
 - Két eszköz eltérő módosításai választást kérnek; nincs csendes felülírás vagy automatikus összevonás.
 - A szerver biztonsági célból 20 verziót őriz; ezekhez nincs külön előzménylista az appban. A mentés legfeljebb 20 MB.
 - Visszaállítás előtt külön helyi biztonsági másolat készül a `Backups/SafetyCopies` mappába.
-- A fiók Google/Apple-belépése a Supabase szolgáltatói beállításait használja, nem a Google Drive-ot.
+- A fiók Google-belépése a Supabase szolgáltatói beállításait használja, nem a Google Drive-ot.
 
 A szinkron jelenleg egy teljes garázs változataival dolgozik. Családi megosztás és soronkénti,
 automatikus összefésülés nincs bekapcsolva. A bejelentkezési tokenek nem kerülnek a mentésekbe.
@@ -98,4 +98,4 @@ A helyi garázstábla-váltás és tulajdonosváltás egy SQLite-tranzakció. Az
 
 Az eladási adatlap fényképes, többoldalas PDF, a saját napló összefoglalója. Elkülöníti a tulajdonosi bejegyzéseket és a dátumozott OBD-leolvasást; nem független állapotigazolás. A költségkategóriák teljes szélességű választólistában jelennek meg. A biztosítási lejárati emlékeztető megszűnt.
 
-Google/Apple szolgáltatói beállítások: [SOCIAL_LOGIN.md](supabase/SOCIAL_LOGIN.md).
+Google szolgáltatói beállítások: [SOCIAL_LOGIN.md](supabase/SOCIAL_LOGIN.md).

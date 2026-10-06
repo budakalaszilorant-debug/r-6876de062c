@@ -11,7 +11,6 @@ final class CloudSync: ObservableObject {
     @Published private(set) var ready = false
     @Published private(set) var accountViewID = UUID()
     @Published private(set) var googleEnabled = false
-    @Published private(set) var appleEnabled = false
     @Published private(set) var email: String?
     @Published private(set) var busy = false
     @Published private(set) var versions: [CloudVersion] = []
@@ -117,15 +116,14 @@ final class CloudSync: ObservableObject {
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let external = root["external"] as? [String: Bool] else { return }
         googleEnabled = external["google"] == true
-        appleEnabled = external["apple"] == true
     }
 
-    func signIn(provider: Provider) async {
+    func signInWithGoogle() async {
         guard !busy, canRestore, let client else { return }
         busy = true
         do {
-            let session = try await client.auth.signInWithOAuth(provider: provider, redirectTo: Self.callback,
-                queryParams: provider == .google ? [(name: "prompt", value: "select_account")] : [])
+            let session = try await client.auth.signInWithOAuth(provider: .google, redirectTo: Self.callback,
+                queryParams: [(name: "prompt", value: "select_account")])
             applySession(session)
         } catch {
             if (error as NSError).code != ASWebAuthenticationSessionError.canceledLogin.rawValue { report(error) }
