@@ -20,7 +20,7 @@ enum SaleReport {
             func text(_ value: String, size: CGFloat = 12, bold: Bool = false, color: UIColor = .black) {
                 let style = NSMutableParagraphStyle(); style.lineSpacing = 4
                 let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: size, weight: bold ? .bold : .regular), .paragraphStyle: style, .foregroundColor: color]
-                let measured = (value as NSString).boundingRect(with: CGSize(width: 515, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attrs, context: nil).height
+                let measured = (value as NSString).boundingRect(with: CGSize(width: 515, height: CGFloat.greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attrs, context: nil).height
                 if y + measured > 780 { newPage() }
                 (value as NSString).draw(in: CGRect(x: 40, y: y, width: 515, height: measured + 2), withAttributes: attrs)
                 y += measured + 14

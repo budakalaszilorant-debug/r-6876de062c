@@ -16,6 +16,12 @@ enum AccountGarage {
     static func activate(owner: String?, verifiedEmail: String?) throws {
         let db = Database.shared
         let destination = owner ?? "guest"
+        // Recover a process termination between SQLite commit and UserDefaults replacement.
+        // No UI or recorder is allowed to run until this recovery completes.
+        if let pending = db.query("SELECT payload FROM account_garages WHERE owner='__handoff__'", map: { $0.string(0) }).first {
+            _ = try Backup.restore(data: Data(pending.utf8))
+            try db.checkedExecute("DELETE FROM account_garages WHERE owner='__handoff__'")
+        }
         guard current != destination else { return }
         let source = current ?? "legacy"
         guard let outgoing = Backup.makeData() else { throw Backup.RestoreError.unreadable }
@@ -35,8 +41,10 @@ enum AccountGarage {
         _ = try Backup.restore(data: incoming, beforeCommit: {
             try db.checkedExecute("INSERT INTO account_garages(owner,payload) VALUES(?,?) ON CONFLICT(owner) DO UPDATE SET payload=excluded.payload", [source, String(decoding: outgoing, as: UTF8.self)])
             try db.checkedExecute("INSERT OR REPLACE INTO account_state(id,owner) VALUES(1,?)", [destination])
+            try db.checkedExecute("INSERT OR REPLACE INTO account_garages(owner,payload) VALUES('__handoff__',?)", [String(decoding: incoming, as: UTF8.self)])
             if claimLegacy { try db.checkedExecute("INSERT INTO account_legacy_claim(owner) VALUES(?)", [destination]) }
         })
+        try db.checkedExecute("DELETE FROM account_garages WHERE owner='__handoff__'")
         generation = UUID()
     }
 

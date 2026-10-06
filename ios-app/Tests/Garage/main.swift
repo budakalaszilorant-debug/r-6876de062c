@@ -209,4 +209,16 @@ try AccountGarage.activate(owner: "test-brother", verifiedEmail: "brother@exampl
 expect(CarStore.all().map(\.name) == ["Brother car"], "second account restores only its own garage")
 try AccountGarage.activate(owner: "test-balazs", verifiedEmail: AccountGarage.personalEmail)
 
+// Recover an interrupted handoff before returning even when the owner already matches.
+let pendingGarage = Backup.makeData()!
+let restoredNames = CarStore.all().map(\.name)
+let restoredAccent = settings.carAccent
+try db.checkedExecute("INSERT OR REPLACE INTO account_garages(owner,payload) VALUES('__handoff__',?)", [String(decoding: pendingGarage, as: UTF8.self)])
+settings.carAccent = "orange"
+_ = CarStore.create(from: .combo, name: "Incomplete handoff")
+try AccountGarage.activate(owner: "test-balazs", verifiedEmail: AccountGarage.personalEmail)
+expect(CarStore.all().map(\.name) == restoredNames, "interrupted handoff restores the destination garage")
+expect(settings.carAccent == restoredAccent, "interrupted handoff repairs preferences")
+expect(db.query("SELECT COUNT(*) FROM account_garages WHERE owner='__handoff__'") { $0.int(0) }.first == 0, "completed handoff clears recovery journal")
+
 print("Garage integration checks passed: \(checks)")
