@@ -221,4 +221,43 @@ expect(CarStore.all().map(\.name) == restoredNames, "interrupted handoff restore
 expect(settings.carAccent == restoredAccent, "interrupted handoff repairs preferences")
 expect(db.query("SELECT COUNT(*) FROM account_garages WHERE owner='__handoff__'") { $0.int(0) }.first == 0, "completed handoff clears recovery journal")
 
+// GPS recording: distance, jitter, bad fixes, outages and event cooldown.
+func fix(_ t: Double, _ lon: Double, speed: Double = 10, accuracy: Double = 5) -> DriveFix {
+    DriveFix(time: t, latitude: 0, longitude: lon, accuracy: accuracy, speed: speed, speedAccuracy: 1)
+}
+var gps = PhoneDriveMetrics()
+expect(gps.accept(fix(100, 0), now: 100), "GPS first fix")
+expect(gps.accept(fix(101, 0.00009), now: 101), "GPS moving fix")
+expect(abs(gps.distanceKm - 0.010) < 0.001, "GPS measured distance")
+expect(!gps.accept(fix(101, 0.0001), now: 101), "duplicate time rejected")
+expect(!gps.accept(fix(90, 0), now: 110), "stale fix rejected")
+expect(!gps.accept(fix(102, 1), now: 102), "GPS teleport rejected")
+expect(!gps.accept(fix(102, 0.00018, accuracy: 80), now: 102), "poor accuracy rejected")
+let beforeGap = gps.distanceKm
+expect(gps.accept(fix(140, 0.02), now: 140), "GPS resumes after outage")
+expect(gps.distanceKm == beforeGap, "outage distance is not invented")
+expect(gps.report.measuredSeconds == 1, "outage excluded from coverage")
+var stationary = PhoneDriveMetrics()
+_ = stationary.accept(fix(100, 0, speed: 0), now: 100)
+_ = stationary.accept(fix(101, 0.00003, speed: 0), now: 101)
+expect(stationary.distanceKm == 0 && stationary.report.stoppedSeconds == 1, "stationary drift adds no distance")
+var events = PhoneDriveMetrics()
+_ = events.accept(fix(100, 0, speed: 10), now: 100)
+_ = events.accept(fix(101, 0.00012, speed: 14), now: 101)
+_ = events.accept(fix(102, 0.00024, speed: 18), now: 102)
+expect(events.report.events.count == 1 && events.report.events.first?.kind == "acceleration", "acceleration event cooldown")
+_ = events.accept(fix(113, 0.0016, speed: 18), now: 113)
+_ = events.accept(fix(114, 0.00172, speed: 14), now: 114)
+expect(events.report.events.last?.kind == "braking", "hard braking estimate")
+var unavailable = PhoneDriveMetrics()
+_ = unavailable.accept(fix(100, 0, speed: -1), now: 100)
+expect(unavailable.speed == nil, "unavailable speed is not zero")
+try GaragePlus.save(events.report, key: "phone-drive-test")
+let gpsBackup = Backup.makeData()!
+_ = try Backup.restore(data: gpsBackup)
+expect(GaragePlus.load(PhoneDriveReport.self, key: "phone-drive-test")?.events.count == 2, "GPS report survives backup")
+try AccountGarage.activate(owner: "test-brother", verifiedEmail: "brother@example.com")
+expect(GaragePlus.load(PhoneDriveReport.self, key: "phone-drive-test") == nil, "GPS report is account private")
+try AccountGarage.activate(owner: "test-balazs", verifiedEmail: AccountGarage.personalEmail)
+
 print("Garage integration checks passed: \(checks)")

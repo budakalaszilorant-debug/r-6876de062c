@@ -70,7 +70,7 @@ final class VehicleMonitor: ObservableObject {
     @Published private(set) var pendingVIN: String?
     private var selectedForConnection = false
     private var latestUnassignedPacket: VehiclePacket?
-    var canManageGarage: Bool { demoActive || (!isLive && recorder.active == nil && BLEManager.shared.state != .connected) }
+    var canManageGarage: Bool { !PhoneDriveRecorder.shared.isBusy && (demoActive || (!isLive && recorder.active == nil && BLEManager.shared.state != .connected)) }
 
     private var seenStartId: Int {
         get { UserDefaults.standard.integer(forKey: CarStore.key("seenStartId")) }
@@ -90,6 +90,7 @@ final class VehicleMonitor: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
+        PhoneDriveRecorder.shared.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         parking = TripStore.latestParking()
         TripStore.closeStale(except: seenStartId)
         refreshAverages()
@@ -129,11 +130,12 @@ final class VehicleMonitor: ObservableObject {
     // MARK: - Csomag feldolgozás
 
     private func handle(_ p: VehiclePacket) {
-        guard BLEManager.shared.state == .connected, CarStore.activeId > 0, !demoActive else { return }
+        guard BLEManager.shared.state == .connected, CarStore.activeId > 0, !demoActive, !PhoneDriveRecorder.shared.isBusy else { return }
         process(p, demo: false)
     }
 
     func setDemo(_ on: Bool) {
+        guard !on || !PhoneDriveRecorder.shared.isBusy else { return }
         guard on != demoActive else { return }
         if on, recorder.active != nil { endTrip() }
         demoActive = on
@@ -289,6 +291,7 @@ final class VehicleMonitor: ObservableObject {
     }
 
     func prepareAccountChange() {
+        PhoneDriveRecorder.shared.endForAccountChange()
         if demoActive { setDemo(false) }
         if recorder.active != nil { endTrip() }
         BLEManager.shared.pauseForAccountChange()
@@ -357,6 +360,7 @@ final class VehicleMonitor: ObservableObject {
 
     /// Unknown VINs are associated only after an explicit choice. With no VIN the choice lasts one BLE connection.
     func confirmCar(_ id: Int) {
+        guard !PhoneDriveRecorder.shared.isBusy else { return }
         guard needsCarSelection, let car = CarStore.get(id), let p = latestUnassignedPacket else { return }
         if let pendingVIN, let existing = car.vin, existing != pendingVIN { return }
         switchCar(to: id, announce: false)
@@ -370,6 +374,7 @@ final class VehicleMonitor: ObservableObject {
 
     /// Átvált egy másik autóra: a folyamatban lévő út lezárul, minden autófüggő állapot újraindul.
     func switchCar(to id: Int, announce: Bool) {
+        guard !PhoneDriveRecorder.shared.isBusy else { return }
         guard id != settings.activeCarId, CarStore.get(id) != nil else { return }
         if recorder.active != nil { endTrip() }
         settings.activate(id)

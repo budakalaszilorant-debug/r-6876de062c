@@ -24,6 +24,7 @@ struct TripsView: View {
 }
 
 struct TripListView: View {
+    @ObservedObject private var phoneDrive = PhoneDriveRecorder.shared
     @EnvironmentObject var monitor: VehicleMonitor
     @EnvironmentObject var settings: AppSettings
     @State private var trips: [Trip] = []
@@ -31,6 +32,7 @@ struct TripListView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                PhoneDriveCard()
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: tr("Hol parkolok", "Where I parked"))
                     ParkingCard(spot: monitor.parking)
@@ -50,8 +52,8 @@ struct TripListView: View {
                         Card {
                             EmptyState(icon: "road.lanes",
                                        title: tr("Még nincs út", "No trips yet"),
-                                       message: tr("Az utak maguktól rögzülnek motorindítástól leállításig.",
-                                                   "Trips record themselves from engine start to stop."))
+                                       message: tr("Indíts telefonos utat, vagy csatlakozz az autóhoz az automatikus rögzítéshez.",
+                                                   "Start a phone drive, or connect to your car for automatic recording."))
                         }
                     } else {
                         ForEach(trips) { trip in
@@ -69,6 +71,7 @@ struct TripListView: View {
         }
         .onAppear(perform: reload)
         .onChange(of: monitor.dataVersion) { _ in reload() }
+        .onChange(of: phoneDrive.revision) { _ in reload() }
     }
 
     private func reload() { trips = TripStore.all() }
@@ -78,7 +81,9 @@ struct TripRow: View {
     let trip: Trip
 
     private var subtitle: String {
-        var parts = [Fmt.duration(trip.duration), "\(Fmt.one(trip.avgConsumption)) l/100"]
+        var parts = [Fmt.duration(trip.duration)]
+        if trip.phoneReport != nil { parts.append("GPS") }
+        else if let consumption = trip.avgConsumption { parts.append("\(Fmt.one(consumption)) l/100") }
         if AppSettings.shared.featTripCost, let cost = trip.cost { parts.append("\(Fmt.km(cost)) Ft") }
         if trip.tag == "work" { parts.append(tr("munka", "work")) }
         if trip.tag == "private" { parts.append(tr("magán", "private")) }
@@ -124,12 +129,14 @@ struct TripDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if track.count > 1 {
-                    TripReplayView(track: track)
+                    TripReplayView(track: track, events: trip.phoneReport?.events ?? [])
                 } else {
                     EmptyState(icon: "location.slash", title: tr("Nincs GPS nyomvonal", "No GPS track"),
                                message: tr("Ehhez az úthoz nem volt helyadat.", "No location data for this trip."))
                         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
+
+                if let report = trip.phoneReport { PhoneDriveReportCard(report: report, trip: trip) }
 
                 Picker("", selection: $tag) {
                     Text(tr("Nincs címke", "No tag")).tag("")
@@ -145,14 +152,16 @@ struct TripDetailView: View {
                 LazyVGrid(columns: columns, spacing: 12) {
                     StatTile(label: tr("Távolság", "Distance"), value: Fmt.one(trip.distanceKm), unit: "km")
                     StatTile(label: tr("Idő", "Duration"), value: Fmt.duration(trip.duration), unit: "")
-                    StatTile(label: tr("Fogyasztás", "Consumption"), value: Fmt.one(trip.avgConsumption), unit: "l/100")
-                    StatTile(label: tr("Üzemanyag", "Fuel used"), value: Fmt.two(trip.fuelL), unit: "l")
-                    if settings.featTripCost {
+                    if trip.phoneReport == nil {
+                        StatTile(label: tr("Fogyasztás", "Consumption"), value: Fmt.one(trip.avgConsumption), unit: "l/100")
+                        StatTile(label: tr("Üzemanyag", "Fuel used"), value: Fmt.two(trip.fuelL), unit: "l")
+                    }
+                    if settings.featTripCost && trip.phoneReport == nil {
                         StatTile(label: tr("Benzinköltség", "Fuel cost"), value: trip.cost.map(Fmt.km) ?? "—", unit: "Ft")
                     }
                     StatTile(label: tr("Átlagsebesség", "Avg speed"), value: Fmt.int(trip.avgSpeed), unit: "km/h")
                     StatTile(label: tr("Max sebesség", "Top speed"), value: Fmt.int(trip.maxSpeed), unit: "km/h")
-                    if settings.featIdle {
+                    if settings.featIdle && trip.phoneReport == nil {
                         StatTile(label: tr("Alapjárat", "Idling"), value: Fmt.duration(trip.idleS), unit: "")
                         StatTile(label: tr("Alapjárati benzin", "Idle fuel"), value: Fmt.two(trip.idleFuelL), unit: "l")
                     }

@@ -40,7 +40,7 @@ struct RootView: View {
                         CloudSection()
                     }.navigationTitle(tr("Garázs", "Garage"))
                 }
-            } else if vSize == .compact {
+            } else if vSize == .compact && tab != 2 {
                 // Fekvő telefon: teljes képernyős műszerfal
                 LandscapeDashboard()
             } else {

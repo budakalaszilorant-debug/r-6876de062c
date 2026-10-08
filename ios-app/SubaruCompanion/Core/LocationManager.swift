@@ -17,7 +17,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 10
+        manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
         authorization = manager.authorizationStatus
@@ -50,7 +50,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus
-        if authorization == .authorizedWhenInUse { manager.requestAlwaysAuthorization() }
+        if authorization == .denied || authorization == .restricted { stopTracking() }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

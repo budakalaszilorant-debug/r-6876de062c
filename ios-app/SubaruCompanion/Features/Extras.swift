@@ -67,12 +67,13 @@ struct MonthlySummary {
     var idleSeconds = 0.0
     var idleFuelL = 0.0
     var fuelL = 0.0        // az utak becsült fogyasztása
+    var fuelMeasuredKm = 0.0
     var cost = 0.0         // a tankolási napló szerint
     var workKm = 0.0       // „munka” címkéjű utak
     var tripCost = 0.0     // az utak becsült benzinköltsége
     var liters = 0.0
 
-    var avgL100: Double? { km > 1 && fuelL > 0 ? fuelL / km * 100 : nil }
+    var avgL100: Double? { fuelMeasuredKm > 1 && fuelL > 0 ? fuelL / fuelMeasuredKm * 100 : nil }
     /// Alapjáraton elégetett benzin ára az utolsó tankolás literárával.
     var idleCost: Double { idleFuelL * AppSettings.shared.lastFuelPrice }
     var isEmpty: Bool { trips == 0 && cost == 0 }
@@ -90,7 +91,8 @@ struct MonthlySummary {
         let db = Database.shared
         _ = db.query("""
             SELECT COUNT(*), SUM(distance_km), SUM(end_t - start), SUM(idle_s), SUM(idle_fuel_l), SUM(fuel_l),
-                   SUM(CASE WHEN tag = 'work' THEN distance_km ELSE 0 END), SUM(cost)
+                   SUM(CASE WHEN tag = 'work' THEN distance_km ELSE 0 END), SUM(cost),
+                   SUM(CASE WHEN fuel_l IS NOT NULL THEN distance_km ELSE 0 END)
             FROM trips WHERE end_t IS NOT NULL AND start >= ? AND start < ? AND car_id = ?
             """, range) { r in
             s.trips = r.int(0)
@@ -101,6 +103,7 @@ struct MonthlySummary {
             s.fuelL = r.double(5)
             s.workKm = r.double(6)
             s.tripCost = r.double(7)
+            s.fuelMeasuredKm = r.double(8)
         }
         _ = db.query("SELECT SUM(cost), SUM(liters) FROM fills WHERE date >= ? AND date < ? AND car_id = ?", range) { r in
             s.cost = r.double(0)

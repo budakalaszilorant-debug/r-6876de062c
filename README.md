@@ -99,3 +99,13 @@ A helyi garázstábla-váltás és tulajdonosváltás egy SQLite-tranzakció. Az
 Az eladási adatlap fényképes, többoldalas PDF, a saját napló összefoglalója. Elkülöníti a tulajdonosi bejegyzéseket és a dátumozott OBD-leolvasást; nem független állapotigazolás. A költségkategóriák teljes szélességű választólistában jelennek meg. A biztosítási lejárati emlékeztető megszűnt.
 
 Google szolgáltatói beállítások: [SOCIAL_LOGIN.md](supabase/SOCIAL_LOGIN.md).
+
+### Telefonos GPS-útnapló
+
+Az **Utak → Telefonos út → Út indítása** gomb autós Bluetooth/OBD kapcsolat nélkül is rögzít. A kiválasztott autóhoz menti az útvonalat, a GPS-távot, időt és sebességet. A **Leállítás és mentés** után térképes visszajátszás, sebességgrafikon, mozgásban/állva töltött idő és becsült erős gyorsítás/fékezés látható. A GPS-utak nem módosítják a kilométerórát, és nem állítanak fogyasztási, telefonhasználati vagy sebességhatár-adatokat.
+
+- Helyhozzáférés és pontos helymeghatározás szükséges; engedéllyel lezárt képernyő mellett is rögzít. Kényszerített bezárás után a mentett pontok megmaradnak, az út megszakítottként jelenik meg.
+- Pontatlan, régi, ismétlődő és ugráló GPS-pontok szűrve. A 15 másodpercnél nagyobb jelkimaradásokon nem húz vonalat és nem számol távot.
+- Eseménybecslés: legalább 3 m/s² GPS-sebességváltozás, megfelelő sebességpontosság, legfeljebb 3 másodperces mintaköz, 10 másodperces eseményköz. Nem hitelesített vezetési minősítés.
+- A rögzítés helyben ment minden elfogadott pontot; internet csak a térképcsempékhez és a meglévő fiókszinkronhoz kell. A fiók-/autóváltás és az automatikus OBD-útnapló nem keveredik az aktív telefonos úttal.
+- Telefonos ellenőrzés: engedély elutasítása/engedélyezése, 10–15 perces út lezárt kijelzővel, megállás, jelkimaradás, app újranyitása, fiókváltás és felhőből visszaállítás. Az automatikus tesztek nem helyettesítik ezt a valós GPS-próbát.

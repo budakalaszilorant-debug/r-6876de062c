@@ -56,6 +56,7 @@ struct ParkingTimerCard: View {
 // MARK: - Havi összesítő
 
 struct MonthlySummaryCard: View {
+    @ObservedObject private var phoneDrive = PhoneDriveRecorder.shared
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var monitor: VehicleMonitor
     @State private var month = Date()
@@ -136,6 +137,7 @@ struct MonthlySummaryCard: View {
         }
         .onAppear(perform: reload)
         .onChange(of: monitor.dataVersion) { _ in reload() }
+        .onChange(of: phoneDrive.revision) { _ in reload() }
     }
 
     private func shift(_ by: Int) {

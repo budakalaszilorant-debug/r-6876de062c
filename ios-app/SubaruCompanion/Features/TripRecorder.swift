@@ -17,6 +17,8 @@ struct Trip: Identifiable, Equatable {
     /// Az út benzinköltsége a leállításkori literárral
     var cost: Double?
 
+    var phoneReport: PhoneDriveReport? { GaragePlus.load(PhoneDriveReport.self, key: "phone-drive-\(id)") }
+
     var duration: TimeInterval { (end ?? Date()).timeIntervalSince(start) }
     var avgSpeed: Double { duration > 0 ? distanceKm / (duration / 3600) : 0 }
     var avgConsumption: Double? {
@@ -55,7 +57,13 @@ enum TripStore {
     private static let columns = "id, start, end_t, distance_km, fuel_l, max_speed, idle_s, idle_fuel_l, tag, cost"
 
     static func all() -> [Trip] {
-        db.query("SELECT \(columns) FROM trips WHERE end_t IS NOT NULL AND car_id = ? ORDER BY start DESC",
+        // A terminated or restored phone recording ends at its last durable location.
+        db.execute("""
+            UPDATE trips SET end_t=COALESCE((SELECT MAX(t) FROM trip_points WHERE trip_id=trips.id),start)
+            WHERE end_t IS NULL AND car_id=? AND id!=?
+            AND EXISTS(SELECT 1 FROM garage_plus WHERE car_id=trips.car_id AND key='phone-drive-' || trips.id)
+            """, [CarStore.activeId, PhoneDriveRecorder.shared.active?.id ?? -1])
+        return db.query("SELECT \(columns) FROM trips WHERE end_t IS NOT NULL AND car_id = ? ORDER BY start DESC",
                  [CarStore.activeId], map: map)
     }
 
@@ -84,6 +92,7 @@ enum TripStore {
     }
 
     static func delete(_ id: Int) {
+        db.execute("DELETE FROM garage_plus WHERE car_id=? AND key=?", [CarStore.activeId, "phone-drive-\(id)"])
         if var samples = GaragePlus.load([DrivingSample].self, key: "baseline") {
             samples.removeAll { $0.id == id }
             try? GaragePlus.save(samples, key: "baseline")
