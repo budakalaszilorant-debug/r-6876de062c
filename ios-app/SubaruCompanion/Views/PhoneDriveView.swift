@@ -1,112 +1,118 @@
 import SwiftUI
 
+/// Recording stays on the trips screen; only stopping opens the detailed report.
 struct PhoneDriveCard: View {
     @ObservedObject private var drive = PhoneDriveRecorder.shared
     @ObservedObject private var monitor = VehicleMonitor.shared
     @ObservedObject private var cloud = CloudSync.shared
-    @State private var open = false
+    @State private var saved: Trip?
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 14) {
-                Label(tr("Telefonos út", "Phone drive"), systemImage: "location.north.line.fill")
-                    .font(.headline).foregroundStyle(Theme.accent)
-                Text(tr("Az útvonalad, egy érintésre.", "Your journey, one tap away."))
-                    .font(.title2.bold()).foregroundStyle(Theme.text)
-                Text(tr("GPS-es útnapló autós kapcsolat nélkül. Indítsd el indulás előtt, és mentsd el érkezéskor.", "A GPS drive log without a car connection. Start before leaving and save on arrival."))
-                    .font(.subheadline).foregroundStyle(Theme.text2)
-                if let trip = drive.active {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text("\(Fmt.one(trip.distanceKm)) km · \(Fmt.duration(context.date.timeIntervalSince(trip.start)))")
-                            .font(.title3.monospacedDigit()).foregroundStyle(Theme.text)
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    Label(tr("Telefonos út", "Phone drive"), systemImage: "location.north.line.fill")
+                        .font(.headline)
+                    Spacer()
+                    if drive.active != nil {
+                        Text(tr("RÖGZÍTÉS", "RECORDING")).font(.caption2.bold())
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Theme.ok.opacity(0.14), in: Capsule()).foregroundStyle(Theme.ok)
                     }
                 }
-                PrimaryButton(title: drive.isBusy ? tr("Rögzítés megnyitása", "Open recording") : tr("Út indítása", "Start drive"), icon: drive.isBusy ? "record.circle" : "play.fill") {
-                    open = true
-                    if !drive.isBusy { drive.start() }
-                }
-                .disabled(!drive.isBusy && (monitor.trip != nil || monitor.isLive || monitor.demoActive || cloud.busy))
-                if !drive.isBusy && (monitor.trip != nil || monitor.isLive || monitor.demoActive) {
-                    Text(tr("Előbb fejezd be az autós rögzítést vagy kapcsold ki a demót.", "Finish the vehicle recording or turn off demo first."))
-                        .font(.caption).foregroundStyle(Theme.text2)
+                if drive.active != nil {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let fresh = drive.lastFixDate.map { context.date.timeIntervalSince($0) < 15 } ?? false
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(!fresh ? tr("GPS-jelre várunk", "Waiting for GPS") : drive.isMoving ? tr("Az utad rögzül", "Recording your drive") : tr("Várakozás indulásra", "Waiting for movement"))
+                                .font(.title2.bold())
+                            Text(tr("Lezárhatod a képernyőt. Az összesítőt leállítás után mutatjuk.", "You can lock the screen. Your report appears when you stop."))
+                                .font(.subheadline).foregroundStyle(Theme.text2)
+                        }
+                    }
+                    PrimaryButton(title: tr("Út befejezése", "Finish drive"), icon: "stop.fill") {
+                        saved = drive.finish()
+                    }
+                } else if drive.waitingForPermission {
+                    ProgressView(tr("Helyhozzáférésre várunk…", "Waiting for location access…"))
+                    Button(tr("Mégse", "Cancel")) { drive.cancelPending() }
+                } else {
+                    Text(tr("Indítsd el. Mi rögzítünk.", "Start it. We record."))
+                        .font(.title2.bold())
+                    Text(tr("Útvonal és vezetési összesítő, autós kapcsolat nélkül. A rögzítés indítás után a háttérben is folytatódik.", "Route and drive report without a car connection. Recording continues in the background after you start."))
+                        .font(.subheadline).foregroundStyle(Theme.text2)
+                    PrimaryButton(title: tr("Út indítása", "Start drive"), icon: "play.fill") { drive.start() }
+                        .disabled(monitor.trip != nil || monitor.isLive || monitor.demoActive || monitor.needsCarSelection || cloud.busy)
+                    if monitor.trip != nil || monitor.isLive || monitor.demoActive || monitor.needsCarSelection {
+                        Text(tr("Előbb fejezd be az autós rögzítést vagy kapcsold ki a demót.", "Finish the vehicle recording or turn off demo first."))
+                            .font(.caption).foregroundStyle(Theme.text2)
+                    }
                 }
             }
         }
-        .sheet(isPresented: $open) { PhoneDriveView() }
+        .sheet(item: $saved) { trip in PhoneDriveView(trip: trip) }
+        .alert(drive.message ?? "", isPresented: Binding(get: { drive.message != nil }, set: { if !$0 { drive.message = nil } })) {
+            Button("OK", role: .cancel) { }
+        }
     }
 }
 
 struct PhoneDriveView: View {
-    @ObservedObject private var drive = PhoneDriveRecorder.shared
+    let trip: Trip
     @Environment(\.dismiss) private var dismiss
-    @State private var saved: Trip?
-    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
-
     var body: some View {
         NavigationStack {
-            Group {
-                if let saved {
-                    TripDetailView(trip: saved) { drive.refreshHistory() }
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
-                            if let last = drive.track.last {
-                                ReplayMap(track: drive.track, marker: last.coordinate, events: drive.report.events)
-                                    .frame(height: 320)
-                                    .clipShape(RoundedRectangle(cornerRadius: 24))
-                            } else {
-                                ContentUnavailableDrive()
-                            }
-                            TimelineView(.periodic(from: .now, by: 1)) { context in
-                                let fresh = drive.lastFixDate.map { context.date.timeIntervalSince($0) < 15 } ?? false
-                                VStack(alignment: .leading, spacing: 14) {
-                                    Label(fresh ? tr("GPS rögzítés folyamatban", "GPS recording") : tr("GPS-jelre várunk", "Waiting for GPS"), systemImage: fresh ? "record.circle" : "location.slash")
-                                        .foregroundStyle(fresh ? Theme.ok : Theme.warn)
-                                    LazyVGrid(columns: columns, spacing: 12) {
-                                        StatTile(label: tr("Megtett táv", "Distance"), value: Fmt.one(drive.active?.distanceKm ?? 0), unit: "km")
-                                        StatTile(label: tr("Eltelt idő", "Elapsed"), value: Fmt.duration(drive.active.map { context.date.timeIntervalSince($0.start) } ?? 0), unit: "")
-                                        StatTile(label: tr("Sebesség", "Speed"), value: fresh ? Fmt.int(drive.speed) : "—", unit: "km/h")
-                                        StatTile(label: tr("Maximum", "Top speed"), value: Fmt.int(drive.active?.maxSpeed), unit: "km/h")
-                                    }
-                                }
-                            }
-                            if drive.active != nil {
-                                PrimaryButton(title: tr("Leállítás és mentés", "Stop and save"), icon: "stop.fill") {
-                                    saved = drive.finish()
-                                }
-                            } else if drive.waitingForPermission {
-                                ProgressView(tr("Helyhozzáférésre várunk…", "Waiting for location permission…"))
-                            } else {
-                                PrimaryButton(title: tr("Út indítása", "Start drive"), icon: "play.fill") { drive.start() }
-                            }
-                            Text(tr("A képernyő lezárható: a rögzítés a háttérben is folytatódik engedélyezett helyhozzáféréssel. Az app kényszerített bezárása megszakítja az utat. GPS-kiesés alatt nem becsülünk hozzá kilométereket.", "You can lock the screen: recording continues in the background with location permission. Force-quitting interrupts the drive. No distance is invented during GPS gaps."))
-                                .font(.footnote).foregroundStyle(Theme.text2)
-                        }.padding(16)
-                    }.screenBackground()
-                }
-            }
-            .navigationTitle(saved == nil ? tr("Telefonos út", "Phone drive") : tr("Út összesítője", "Drive report"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) {
-                Button(saved == nil && drive.active != nil ? tr("Háttérbe", "Minimize") : tr("Kész", "Done")) { dismiss() }
-            } }
-            .alert(drive.message ?? "", isPresented: Binding(get: { drive.message != nil }, set: { if !$0 { drive.message = nil } })) {
-                Button("OK", role: .cancel) { }
-            }
+            TripDetailView(trip: trip) { PhoneDriveRecorder.shared.refreshHistory() }
+                .toolbar { ToolbarItem(placement: .confirmationAction) {
+                    Button(tr("Kész", "Done")) { dismiss() }
+                } }
         }.preferredColorScheme(.dark)
-        .onDisappear { drive.cancelPending() }
     }
 }
 
-private struct ContentUnavailableDrive: View {
+enum DriveReportFormat {
+    static func duration(_ seconds: Double) -> String {
+        let t = max(0, Int(seconds))
+        return t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
+            : String(format: "%d:%02d", t / 60, t % 60)
+    }
+}
+
+struct PhoneDriveSummaryHeader: View {
+    let trip: Trip
+    let report: PhoneDriveReport
+    private var noMovement: Bool { report.confirmedMovement == false }
     var body: some View {
         Card {
-            VStack(spacing: 16) {
-                Image(systemName: "location.circle").font(.system(size: 64)).foregroundStyle(Theme.accent)
-                Text(tr("Itt rajzolódik az utad", "Your route appears here")).font(.title2.bold())
-                Text(tr("A pontos helymeghatározás legyen bekapcsolva. Az első GPS-pont megérkezése néhány másodpercet igényelhet.", "Enable Precise Location. The first GPS fix may take a few seconds."))
-                    .font(.subheadline).foregroundStyle(Theme.text2).multilineTextAlignment(.center)
-            }.frame(maxWidth: .infinity).padding(.vertical, 30)
+            VStack(alignment: .leading, spacing: 18) {
+                Label(noMovement ? tr("Nem észleltünk elindulást", "No confirmed movement") : tr("Út összesítője", "Drive summary"),
+                      systemImage: noMovement ? "parkingsign.circle" : "checkmark.circle.fill")
+                    .foregroundStyle(noMovement ? Theme.text2 : Theme.ok).font(.headline)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(String(format: "%.2f", trip.distanceKm)).font(Theme.number(46))
+                    Text("km").font(.title3).foregroundStyle(Theme.text2)
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(DriveReportFormat.duration(trip.duration)).font(.title2.monospacedDigit())
+                        Text(tr("teljes idő", "total time")).font(.caption).foregroundStyle(Theme.text2)
+                    }
+                }
+                if noMovement {
+                    Text(tr("A telefon nem jelzett megerősített mozgást. A GPS-ingadozást nem számoltuk megtett útnak.", "No movement was confirmed. GPS drift was not counted as distance."))
+                        .font(.subheadline).foregroundStyle(Theme.text2)
+                }
+                HStack(alignment: .top) {
+                    endpoint(tr("INDÍTÁS", "STARTED"), trip.start, "circle.fill")
+                    Spacer()
+                    endpoint(tr("LEÁLLÍTÁS", "STOPPED"), trip.end ?? trip.start, "flag.checkered")
+                }
+            }
+        }
+    }
+    private func endpoint(_ title: String, _ date: Date, _ icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: icon).font(.caption2.bold()).foregroundStyle(Theme.text2)
+            Text(date.formatted(date: .omitted, time: .standard)).font(.subheadline.monospacedDigit())
         }
     }
 }
@@ -114,31 +120,58 @@ private struct ContentUnavailableDrive: View {
 struct PhoneDriveReportCard: View {
     let report: PhoneDriveReport
     let trip: Trip
+    private var reason: String {
+        switch report.endReason {
+        case "permission": return tr("A helyhozzáférés megszűnt", "Location permission was removed")
+        case "storage": return tr("Mentési hiba miatt megszakadt", "Interrupted by a saving error")
+        case "account": return tr("Fiókváltás miatt lezárva", "Ended for an account change")
+        case "stopped": return tr("Te állítottad le", "Stopped by you")
+        default: return report.interrupted ? tr("A rögzítés megszakadt", "Recording was interrupted") : tr("Te állítottad le", "Stopped by you")
+        }
+    }
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 16) {
-                Label(tr("Vezetési összesítő · GPS", "Drive report · GPS"), systemImage: "steeringwheel").font(.headline)
-                if report.interrupted {
-                    Label(tr("Megszakadt rögzítés – a mentett szakasz", "Interrupted recording – saved portion"), systemImage: "exclamationmark.circle").foregroundStyle(Theme.warn)
+            VStack(alignment: .leading, spacing: 18) {
+                Text(tr("Az út részletei", "Drive details")).font(.headline)
+                if report.confirmedMovement != false {
+                    HStack(spacing: 12) {
+                        metric(Fmt.int(trip.avgSpeed), tr("Átlag · km/h", "Average · km/h"))
+                        metric(Fmt.int(trip.maxSpeed), tr("Maximum · km/h", "Top · km/h"))
+                    }
+                    HStack(alignment: .top, spacing: 12) {
+                        eventCount("acceleration", tr("Erős gyorsítás", "Hard acceleration"), "arrow.up.right", Theme.warn)
+                        eventCount("braking", tr("Erős fékezés", "Hard braking"), "arrow.down.right", Theme.bad)
+                    }
                 }
-                HStack(alignment: .top, spacing: 12) {
-                    eventCount("acceleration", tr("Erős gyorsítás", "Hard acceleration"), "arrow.up.right", Theme.warn)
-                    eventCount("braking", tr("Erős fékezés", "Hard braking"), "arrow.down.right", Theme.bad)
-                }
-                LabeledContent(tr("Mozgásban", "Moving"), value: Fmt.duration(report.movingSeconds))
-                LabeledContent(tr("Álló helyzet", "Stopped"), value: Fmt.duration(report.stoppedSeconds))
+                LabeledContent(tr("Mozgásban", "Moving"), value: DriveReportFormat.duration(report.movingSeconds))
+                LabeledContent(tr("Álló helyzet / indulásra várva", "Stopped / awaiting movement"), value: DriveReportFormat.duration(report.stoppedSeconds))
                 LabeledContent(tr("GPS-lefedettség", "GPS coverage"), value: "\(Int(min(100, max(0, report.measuredSeconds / max(1, trip.duration) * 100))))%")
-                Text(tr("A vezetési események GPS-sebességváltozásból becsültek. A megállás nem alapjárat-mérés. Fogyasztást, telefonhasználatot és közúti sebességhatárt ez a mód nem mér.", "Driving events are estimated from GPS speed changes. Stopped time is not engine idling. This mode does not measure fuel use, phone use or road speed limits."))
+                Divider()
+                Label(reason, systemImage: report.interrupted ? "exclamationmark.circle" : "stop.circle")
+                    .font(.subheadline).foregroundStyle(report.interrupted ? Theme.warn : Theme.text2)
+                Text(tr("A sebesség és a vezetési események GPS-alapú becslések. A kimaradt szakaszokra nem számolunk hozzá távolságot.", "Speed and driving events are GPS estimates. Missing sections do not add estimated distance."))
                     .font(.caption).foregroundStyle(Theme.text2)
+                if report.measurementVersion == nil {
+                    Text(tr("Korábbi mérés: még a szigorúbb állóhelyzet-szűrés előtt készült.", "Older recording: captured before the improved stationary filter."))
+                        .font(.caption).foregroundStyle(Theme.warn)
+                }
             }
         }
     }
+    private func metric(_ value: String, _ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(value).font(Theme.number(30))
+            Text(title).font(.caption).foregroundStyle(Theme.text2)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
     private func eventCount(_ kind: String, _ title: String, _ icon: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: icon).foregroundStyle(color)
-            Text("\(report.events.filter { $0.kind == kind }.count)").font(Theme.number(30))
-            Text(title).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Image(systemName: icon).foregroundStyle(color)
+                Text("\(report.events.filter { $0.kind == kind }.count)").font(Theme.number(24))
+            }
+            Text(title).font(.caption).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+            .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
     }
 }

@@ -221,37 +221,81 @@ expect(CarStore.all().map(\.name) == restoredNames, "interrupted handoff restore
 expect(settings.carAccent == restoredAccent, "interrupted handoff repairs preferences")
 expect(db.query("SELECT COUNT(*) FROM account_garages WHERE owner='__handoff__'") { $0.int(0) }.first == 0, "completed handoff clears recovery journal")
 
-// GPS recording: distance, jitter, bad fixes, outages and event cooldown.
+// Stationary regression: a single 5 km/h spike must not produce speed, distance or a route.
 func fix(_ t: Double, _ lon: Double, speed: Double = 10, accuracy: Double = 5) -> DriveFix {
     DriveFix(time: t, latitude: 0, longitude: lon, accuracy: accuracy, speed: speed, speedAccuracy: 1)
 }
+var stationary = PhoneDriveMetrics()
+var stationaryPoints = 0
+for i in 0..<90 {
+    let noisySpeed = i == 0 ? 1.55 : (i % 9 == 0 ? 0.7 : 0.1)
+    _ = stationary.accept(fix(100 + Double(i), Double(i % 7) * 0.00001, speed: noisySpeed), now: 100 + Double(i))
+    stationaryPoints += stationary.routeFixes.count
+}
+expect(stationary.distanceKm == 0 && stationary.maxSpeed == 0, "indoor GPS wobble adds no distance or top speed")
+expect(stationary.report.movingSeconds == 0 && stationaryPoints == 0, "stationary fixes never draw a route")
+expect(stationary.report.confirmedMovement == false, "stationary session explicitly reports no departure")
+expect(stationary.report.stoppedSeconds == 89, "stationary time retained without route points")
+expect(stationary.report.lastObservedAt == 189, "stationary session has a durable recovery heartbeat")
+
+var circles = PhoneDriveMetrics()
+for i in 0..<90 {
+    _ = circles.accept(fix(100 + Double(i), sin(Double(i)) * 0.00007, speed: 3), now: 100 + Double(i))
+}
+expect(circles.distanceKm == 0 && circles.maxSpeed == 0, "repeated fast-looking position drift cannot confirm departure")
+var sensorStationary = PhoneDriveMetrics()
+for i in 0..<12 {
+    _ = sensorStationary.accept(fix(100 + Double(i), Double(i)*0.00009), now: 100 + Double(i), stationary: true)
+}
+expect(sensorStationary.distanceKm == 0, "high-confidence stationary motion signal vetoes GPS drift")
+
 var gps = PhoneDriveMetrics()
-expect(gps.accept(fix(100, 0), now: 100), "GPS first fix")
-expect(gps.accept(fix(101, 0.00009), now: 101), "GPS moving fix")
-expect(abs(gps.distanceKm - 0.010) < 0.001, "GPS measured distance")
-expect(!gps.accept(fix(101, 0.0001), now: 101), "duplicate time rejected")
+for i in 0..<4 {
+    _ = gps.accept(fix(100 + Double(i), Double(i)*0.00009), now: 100 + Double(i))
+    expect(gps.routeFixes.isEmpty && gps.distanceKm == 0, "departure needs multiple seconds of evidence")
+}
+expect(gps.accept(fix(104, 0.00036), now: 104), "GPS confirms sustained displacement")
+expect(gps.routeFixes.count == 5 && gps.isMoving, "confirmed departure releases its buffered route")
+expect(abs(gps.distanceKm - 0.040) < 0.001, "confirmed start includes buffered distance")
+expect(gps.report.movingSeconds == 4 && gps.report.stoppedSeconds == 0, "confirmation does not double count duration")
+expect(!gps.accept(fix(104, 0.0004), now: 104), "duplicate time rejected")
 expect(!gps.accept(fix(90, 0), now: 110), "stale fix rejected")
-expect(!gps.accept(fix(102, 1), now: 102), "GPS teleport rejected")
-expect(!gps.accept(fix(102, 0.00018, accuracy: 80), now: 102), "poor accuracy rejected")
+expect(!gps.accept(fix(105, 1), now: 105), "GPS teleport rejected")
+expect(!gps.accept(fix(105, 0.00045, accuracy: 80), now: 105), "poor accuracy rejected")
+expect(!gps.accept(fix(105, 0.00045, speed: 60), now: 105), "impossible speed spike rejected")
 let beforeGap = gps.distanceKm
 expect(gps.accept(fix(140, 0.02), now: 140), "GPS resumes after outage")
-expect(gps.distanceKm == beforeGap, "outage distance is not invented")
-expect(gps.report.measuredSeconds == 1, "outage excluded from coverage")
-var stationary = PhoneDriveMetrics()
-_ = stationary.accept(fix(100, 0, speed: 0), now: 100)
-_ = stationary.accept(fix(101, 0.00003, speed: 0), now: 101)
-expect(stationary.distanceKm == 0 && stationary.report.stoppedSeconds == 1, "stationary drift adds no distance")
-var events = PhoneDriveMetrics()
-_ = events.accept(fix(100, 0, speed: 10), now: 100)
-_ = events.accept(fix(101, 0.00012, speed: 14), now: 101)
-_ = events.accept(fix(102, 0.00024, speed: 18), now: 102)
-expect(events.report.events.count == 1 && events.report.events.first?.kind == "acceleration", "acceleration event cooldown")
-_ = events.accept(fix(113, 0.0016, speed: 18), now: 113)
-_ = events.accept(fix(114, 0.00172, speed: 14), now: 114)
-expect(events.report.events.last?.kind == "braking", "hard braking estimate")
+expect(gps.distanceKm == beforeGap && gps.routeFixes.isEmpty && !gps.isMoving, "outage requires fresh confirmation and never bridges distance")
+expect(gps.report.measuredSeconds == 4, "outage excluded from coverage")
+for i in 1...4 { _ = gps.accept(fix(140 + Double(i), 0.02 + Double(i)*0.00009), now: 140 + Double(i)) }
+expect(abs(gps.distanceKm - beforeGap - 0.04) < 0.001, "reacquired distance excludes missing section")
+let afterReacquire = gps.distanceKm
+_ = gps.accept(fix(145, 0.02038, speed: 0), now: 145)
+expect(gps.distanceKm == afterReacquire && gps.speed == 0 && gps.routeFixes.isEmpty, "stop freezes route immediately")
+
 var unavailable = PhoneDriveMetrics()
-_ = unavailable.accept(fix(100, 0, speed: -1), now: 100)
-expect(unavailable.speed == nil, "unavailable speed is not zero")
+for i in 0..<20 { _ = unavailable.accept(fix(100 + Double(i), Double(i)*0.00005, speed: -1), now: 100 + Double(i)) }
+expect(unavailable.speed == nil && unavailable.distanceKm == 0, "coordinate-only drift with missing speed is not movement")
+var inaccurateSpeed = PhoneDriveMetrics()
+for i in 0..<10 {
+    var sample = fix(100 + Double(i), Double(i)*0.00009)
+    sample.speedAccuracy = 8
+    _ = inaccurateSpeed.accept(sample, now: sample.time)
+}
+expect(inaccurateSpeed.distanceKm == 0, "unreliable velocity cannot start a drive")
+
+var events = PhoneDriveMetrics()
+for i in 0...5 { _ = events.accept(fix(100 + Double(i), Double(i)*0.00009), now: 100 + Double(i)) }
+_ = events.accept(fix(106, 0.00056, speed: 14), now: 106)
+_ = events.accept(fix(107, 0.00071, speed: 18), now: 107)
+expect(events.report.events.count == 1 && events.report.events.first?.kind == "acceleration", "confirmed acceleration and event cooldown")
+for i in 108...117 { _ = events.accept(fix(Double(i), 0.00071 + Double(i-107)*0.00016, speed: 18), now: Double(i)) }
+_ = events.accept(fix(118, 0.00245, speed: 14), now: 118)
+expect(events.report.events.last?.kind == "braking", "hard braking estimate after confirmed motion")
+var legacyReport = try JSONSerialization.jsonObject(with: JSONEncoder().encode(events.report)) as! [String: Any]
+for key in ["measurementVersion", "confirmedMovement", "lastObservedAt", "endReason"] { legacyReport.removeValue(forKey: key) }
+let decodedLegacy = try JSONDecoder().decode(PhoneDriveReport.self, from: JSONSerialization.data(withJSONObject: legacyReport))
+expect(decodedLegacy.measurementVersion == nil && decodedLegacy.confirmedMovement == nil, "old reports load without claiming improved accuracy")
 try GaragePlus.save(events.report, key: "phone-drive-test")
 let gpsBackup = Backup.makeData()!
 _ = try Backup.restore(data: gpsBackup)

@@ -38,7 +38,7 @@ struct DriveLiveActivity: Widget {
                         Spacer()
                         if context.state.mode == "warmup", !context.isStale {
                             ProgressView(value: context.state.progress).tint(.cyan).frame(width: 80)
-                        } else if context.state.mode == "drive", !context.isStale {
+                        } else if ["drive", "phone"].contains(context.state.mode), !context.isStale {
                             Text(String(format: "%.1f km", context.state.tripKm)).font(.callout.monospacedDigit())
                         }
                     }
@@ -54,7 +54,8 @@ struct DriveLiveActivity: Widget {
     }
 
     private func symbol(_ state: DriveActivityAttributes.ContentState) -> String {
-        ["parking", "parked"].contains(state.mode) ? "parkingsign.circle.fill" : state.mode == "warmup" ? "thermometer.medium" : "car.fill"
+        if state.mode == "phone" { return "location.fill" }
+        return ["parking", "parked"].contains(state.mode) ? "parkingsign.circle.fill" : state.mode == "warmup" ? "thermometer.medium" : "car.fill"
     }
 
     private func title(_ context: ActivityViewContext<DriveActivityAttributes>) -> String {
@@ -62,6 +63,7 @@ struct DriveLiveActivity: Widget {
         if s.mode == "parked" { return s.hu ? "Leparkoltál" : "Parked" }
         if s.mode == "parking" { return s.hu ? "Parkolóóra" : "Parking timer" }
         if context.isStale { return s.hu ? "Nincs friss adat" : "Data unavailable" }
+        if s.mode == "phone" { return s.hu ? "GPS-rögzítés" : "GPS recording" }
         return s.mode == "warmup" ? (s.hu ? "Bemelegedés" : "Warming up") : (s.hu ? "Úton" : "Driving")
     }
 

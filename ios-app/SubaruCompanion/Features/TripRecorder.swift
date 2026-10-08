@@ -58,11 +58,11 @@ enum TripStore {
 
     static func all() -> [Trip] {
         // A terminated or restored phone recording ends at its last durable location.
-        db.execute("""
-            UPDATE trips SET end_t=COALESCE((SELECT MAX(t) FROM trip_points WHERE trip_id=trips.id),start)
-            WHERE end_t IS NULL AND car_id=? AND id!=?
-            AND EXISTS(SELECT 1 FROM garage_plus WHERE car_id=trips.car_id AND key='phone-drive-' || trips.id)
-            """, [CarStore.activeId, PhoneDriveRecorder.shared.active?.id ?? -1])
+        let unfinished = db.query("SELECT id,start FROM trips WHERE end_t IS NULL AND car_id=? AND id!=?",
+            [CarStore.activeId, PhoneDriveRecorder.shared.active?.id ?? -1]) { ($0.int(0), $0.double(1)) }
+        for (id, start) in unfinished where GaragePlus.load(PhoneDriveReport.self, key: "phone-drive-\(id)") != nil {
+            db.execute("UPDATE trips SET end_t=? WHERE id=?", [lastSavedTime(id, start: start), id])
+        }
         return db.query("SELECT \(columns) FROM trips WHERE end_t IS NOT NULL AND car_id = ? ORDER BY start DESC",
                  [CarStore.activeId], map: map)
     }
@@ -107,9 +107,16 @@ enum TripStore {
             ($0.int(0), $0.double(1))
         }
         for (id, start) in open {
-            let lastPoint = db.query("SELECT MAX(t) FROM trip_points WHERE trip_id = ?", [id]) { $0.optDouble(0) }.first ?? nil
-            db.execute("UPDATE trips SET end_t = ? WHERE id = ?", [lastPoint ?? start, id])
+            db.execute("UPDATE trips SET end_t = ? WHERE id = ?", [lastSavedTime(id, start: start), id])
         }
+    }
+
+    private static func lastSavedTime(_ id: Int, start: Double) -> Double {
+        if let observed = GaragePlus.load(PhoneDriveReport.self, key: "phone-drive-\(id)")?.lastObservedAt {
+            return max(start, observed)
+        }
+        let point = db.query("SELECT MAX(t) FROM trip_points WHERE trip_id=?", [id]) { $0.optDouble(0) }.first ?? nil
+        return max(start, point ?? start)
     }
 
     static func latestParking() -> ParkingSpot? {

@@ -21,6 +21,7 @@ final class DriveActivity {
     func start(tripStart: Date, state: DriveActivityAttributes.ContentState) {
         if let current = activity, current.activityState == .ended || current.activityState == .dismissed { activity = nil }
         if let current = activity, current.content.state.carID != state.carID { end() }
+        if let current = activity, (current.content.state.mode == "phone") != (state.mode == "phone") { end() }
         if activity != nil { update(state, force: true); return }
         guard UIApplication.shared.applicationState == .active,
               ActivityAuthorizationInfo().areActivitiesEnabled else { return }
@@ -64,6 +65,10 @@ final class DriveActivity {
 
     func endParking() {
         if ["parking", "parked"].contains(activity?.content.state.mode ?? "") { end() }
+    }
+
+    func endPhoneDrive() {
+        if activity?.content.state.mode == "phone" { end() }
     }
 
     func end() {

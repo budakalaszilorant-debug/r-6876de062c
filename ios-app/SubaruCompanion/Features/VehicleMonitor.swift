@@ -236,6 +236,10 @@ final class VehicleMonitor: ObservableObject {
     /// Az iOS csak előtérben lévő appnak engedi elindítani: az app megnyitásakor hívjuk.
     func startLiveActivityIfNeeded() {
         guard settings.featLiveActivity, !demoActive else { return }
+        if PhoneDriveRecorder.shared.active != nil {
+            PhoneDriveRecorder.shared.startLiveActivityIfNeeded()
+            return
+        }
         if recorder.active == nil, let end = ParkingTimer.shared.end, end > Date() {
             DriveActivity.shared.parking(until: end)
             return

@@ -12,6 +12,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
     private let manager = CLLocationManager()
     private(set) var isTracking = false
+    var hasPreciseLocation: Bool { manager.accuracyAuthorization == .fullAccuracy }
 
     private override init() {
         super.init()

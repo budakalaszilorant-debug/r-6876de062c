@@ -11,6 +11,7 @@ final class ColoredPolyline: MKPolyline {
 struct TripReplayView: View {
     let track: [TrackPoint]
     var events: [PhoneDriveEvent] = []
+    var simplified = false
 
     @State private var position = 0.0      // 0...1 az út mentén
     @State private var playing = false
@@ -31,8 +32,8 @@ struct TripReplayView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ReplayMap(track: track, marker: current.coordinate, events: events)
-                .frame(height: 300)
+            ReplayMap(track: track, marker: current.coordinate, events: events, simplified: simplified)
+                .frame(height: simplified ? 350 : 300)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             Card {
@@ -48,6 +49,7 @@ struct TripReplayView: View {
                                 .foregroundStyle(.white)
                         }
                         .buttonStyle(PressableStyle())
+                        .accessibilityLabel(playing ? tr("Szünet", "Pause") : tr("Út lejátszása", "Play drive"))
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(alignment: .firstTextBaseline, spacing: 3) {
@@ -56,12 +58,13 @@ struct TripReplayView: View {
                                     .contentTransition(.numericText())
                                 Text("km/h").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text2)
                             }
-                            Text(Fmt.duration(current.t - startT))
+                            Text(DriveReportFormat.duration(current.t - startT))
                                 .font(.system(size: 12))
                                 .foregroundStyle(Theme.text3)
                         }
                         Spacer()
-                        legend
+                        if !simplified { legend }
+                        else { Text(tr("Visszajátszás", "Replay")).font(.caption).foregroundStyle(Theme.text2) }
                     }
                     .accessibilityElement(children: .contain)
 
@@ -169,12 +172,16 @@ struct ReplayMap: UIViewRepresentable {
     let track: [TrackPoint]
     let marker: CLLocationCoordinate2D
     var events: [PhoneDriveEvent] = []
+    var simplified = false
 
     func makeUIView(context: Context) -> MKMapView {
         let map = MKMapView()
         map.delegate = context.coordinator
         map.overrideUserInterfaceStyle = .dark
         map.pointOfInterestFilter = .excludingAll
+        map.isPitchEnabled = false
+        map.showsScale = true
+        map.cameraZoomRange = MKMapView.CameraZoomRange(minCenterCoordinateDistance: 450)
         map.addAnnotation(context.coordinator.marker)
         return map
     }
@@ -196,10 +203,12 @@ struct ReplayMap: UIViewRepresentable {
         }
         var previous: TrackPoint?
         for p in track {
-            if let previous, p.t - previous.t > 15 {
+            if let previous, p.t - previous.t > 10 {
                 flush(); run = []; band = nil
             }
-            let b = SpeedBand.of(p.speed)
+            let point = MKMapPoint(p.coordinate)
+            bounds = bounds.union(MKMapRect(x: point.x, y: point.y, width: 1, height: 1))
+            let b: SpeedBand = simplified ? .city : SpeedBand.of(p.speed)
             if b != band {
                 run.append(p.coordinate)   // a szakaszok érjenek össze
                 flush()
@@ -212,6 +221,10 @@ struct ReplayMap: UIViewRepresentable {
         }
         flush()
         if !bounds.isNull {
+            let minimum = MKMapPointsPerMeterAtLatitude(marker.latitude) * 600
+            bounds = MKMapRect(x: bounds.midX - max(bounds.width, minimum) / 2,
+                y: bounds.midY - max(bounds.height, minimum) / 2,
+                width: max(bounds.width, minimum), height: max(bounds.height, minimum))
             map.setVisibleMapRect(bounds, edgePadding: UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40),
                                   animated: false)
         }
@@ -220,7 +233,7 @@ struct ReplayMap: UIViewRepresentable {
             map.addAnnotation(DriveAnnotation(coordinate: first.coordinate, title: tr("Indulás", "Start"), glyph: "play.fill", tint: .systemGreen))
         }
         if let last = track.last, track.count > 1 {
-            map.addAnnotation(DriveAnnotation(coordinate: last.coordinate, title: tr("Érkezés / utolsó pont", "Finish / latest point"), glyph: "flag.checkered", tint: .systemBlue))
+            map.addAnnotation(DriveAnnotation(coordinate: last.coordinate, title: tr("Utolsó rögzített pont", "Last recorded point"), glyph: "flag.checkered", tint: .systemBlue))
         }
         for event in events {
             let acceleration = event.kind == "acceleration"
@@ -265,6 +278,8 @@ struct ReplayMap: UIViewRepresentable {
                 let view = (mapView.dequeueReusableAnnotationView(withIdentifier: "event") as? MKMarkerAnnotationView)
                     ?? MKMarkerAnnotationView(annotation: point, reuseIdentifier: "event")
                 view.annotation = point; view.canShowCallout = true
+                view.titleVisibility = .hidden
+                view.subtitleVisibility = .hidden
                 view.glyphImage = UIImage(systemName: point.glyph); view.markerTintColor = point.tint
                 return view
             }

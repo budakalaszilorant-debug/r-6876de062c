@@ -59,7 +59,7 @@ targets:
         NSBluetoothAlwaysUsageDescription: "Az app Bluetooth-on olvassa az autó adatait az OBD dugóról."
         NSLocationWhenInUseUsageDescription: "Az utak rögzítéséhez és a parkolási hely mentéséhez."
         NSLocationAlwaysAndWhenInUseUsageDescription: "Az utak háttérben is rögzülnek, és a parkolási hely leállításkor mentődik."
-        NSMotionUsageDescription: "A G-erő mérőhöz a telefon gyorsulásmérőjét használjuk."
+        NSMotionUsageDescription: "A telefon mozgásérzékelőjével kiszűrjük az álló helyzetben jelentkező GPS-ingadozást, és megjelenítjük a G-erőt."
         GIDClientID: $(GOOGLE_CLIENT_ID)
         SupabaseURL: $(SUPABASE_URL)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)

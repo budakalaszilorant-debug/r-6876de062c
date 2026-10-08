@@ -128,12 +128,15 @@ struct TripDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if track.count > 1 {
-                    TripReplayView(track: track, events: trip.phoneReport?.events ?? [])
+                if let report = trip.phoneReport { PhoneDriveSummaryHeader(trip: trip, report: report) }
+                if track.count > 1 && trip.phoneReport?.confirmedMovement != false {
+                    TripReplayView(track: track, events: trip.phoneReport?.events ?? [], simplified: trip.phoneReport != nil)
                 } else {
+                    if trip.phoneReport?.confirmedMovement != false {
                     EmptyState(icon: "location.slash", title: tr("Nincs GPS nyomvonal", "No GPS track"),
                                message: tr("Ehhez az úthoz nem volt helyadat.", "No location data for this trip."))
                         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    }
                 }
 
                 if let report = trip.phoneReport { PhoneDriveReportCard(report: report, trip: trip) }
@@ -149,7 +152,7 @@ struct TripDetailView: View {
                     onDelete()  // a lista frissítése
                 }
 
-                LazyVGrid(columns: columns, spacing: 12) {
+                if trip.phoneReport == nil { LazyVGrid(columns: columns, spacing: 12) {
                     StatTile(label: tr("Távolság", "Distance"), value: Fmt.one(trip.distanceKm), unit: "km")
                     StatTile(label: tr("Idő", "Duration"), value: Fmt.duration(trip.duration), unit: "")
                     if trip.phoneReport == nil {
@@ -165,7 +168,7 @@ struct TripDetailView: View {
                         StatTile(label: tr("Alapjárat", "Idling"), value: Fmt.duration(trip.idleS), unit: "")
                         StatTile(label: tr("Alapjárati benzin", "Idle fuel"), value: Fmt.two(trip.idleFuelL), unit: "l")
                     }
-                }
+                } }
 
                 PrimaryButton(title: tr("Út törlése", "Delete trip"), icon: "trash", tint: Theme.surface2) {
                     confirmDelete = true
