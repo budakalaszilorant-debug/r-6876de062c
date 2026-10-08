@@ -46,7 +46,7 @@ struct PhoneDriveView: View {
         NavigationStack {
             Group {
                 if let saved {
-                    TripDetailView(trip: saved) { drive.message = nil }
+                    TripDetailView(trip: saved) { drive.refreshHistory() }
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {

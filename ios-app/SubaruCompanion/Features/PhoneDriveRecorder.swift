@@ -69,6 +69,7 @@ final class PhoneDriveRecorder: ObservableObject {
     }
 
     func cancelPending() { waitingForPermission = false }
+    func refreshHistory() { revision += 1 }
 
     func endForAccountChange() {
         _ = finish(interrupted: true)
