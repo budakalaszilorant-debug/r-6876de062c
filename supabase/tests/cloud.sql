@@ -53,3 +53,4 @@ do $$ begin
     assert not has_function_privilege('anon','public.garage_commit(bigint,text,jsonb,text)','EXECUTE'), 'anonymous writes denied';
 end $$;
 select 'Cloud isolation and revision checks passed' as result;
+\ir family.sql

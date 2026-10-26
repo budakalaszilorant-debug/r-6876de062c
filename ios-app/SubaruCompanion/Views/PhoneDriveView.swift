@@ -122,6 +122,7 @@ struct PhoneDriveReportCard: View {
     let trip: Trip
     private var reason: String {
         switch report.endReason {
+        case "edited": return tr("Utólag szerkesztett út", "Edited trip")
         case "permission": return tr("A helyhozzáférés megszűnt", "Location permission was removed")
         case "storage": return tr("Mentési hiba miatt megszakadt", "Interrupted by a saving error")
         case "account": return tr("Fiókváltás miatt lezárva", "Ended for an account change")
@@ -143,9 +144,10 @@ struct PhoneDriveReportCard: View {
                         eventCount("braking", tr("Erős fékezés", "Hard braking"), "arrow.down.right", Theme.bad)
                     }
                 }
-                LabeledContent(tr("Mozgásban", "Moving"), value: DriveReportFormat.duration(report.movingSeconds))
+                if report.edited != true { LabeledContent(tr("Mozgásban", "Moving"), value: DriveReportFormat.duration(report.movingSeconds))
                 LabeledContent(tr("Álló helyzet / indulásra várva", "Stopped / awaiting movement"), value: DriveReportFormat.duration(report.stoppedSeconds))
                 LabeledContent(tr("GPS-lefedettség", "GPS coverage"), value: "\(Int(min(100, max(0, report.measuredSeconds / max(1, trip.duration) * 100))))%")
+                }
                 Divider()
                 Label(reason, systemImage: report.interrupted ? "exclamationmark.circle" : "stop.circle")
                     .font(.subheadline).foregroundStyle(report.interrupted ? Theme.warn : Theme.text2)

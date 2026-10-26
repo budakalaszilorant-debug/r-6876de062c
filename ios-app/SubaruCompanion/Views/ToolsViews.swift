@@ -326,6 +326,8 @@ struct CostsView: View {
                 }
             }
 
+            OwnershipCostsView().id(expenses.count + period)
+
             if compare.count > 1 {
                 Card {
                     VStack(alignment: .leading, spacing: 10) {

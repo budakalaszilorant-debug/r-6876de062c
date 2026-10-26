@@ -361,6 +361,11 @@ final class CloudSync: ObservableObject {
         if let key = accountKey, let data = try? JSONEncoder().encode(checkpoint) { defaults.set(data, forKey: key) }
     }
 
+    func family(_ action: String, garage: UUID? = nil, data: [String:Any] = [:]) async throws -> Data {
+        guard ready, let owner else { throw Failure.configuration }
+        return try await request("rpc/family_action", owner: owner, body: ["p_action":action,"p_garage":garage.map { $0.uuidString } as Any? ?? NSNull(),"p_data":data])
+    }
+
     private func request(_ path: String, owner id: UUID, query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> Data {
         guard let client, let server else { throw Failure.configuration }
         let session = try await client.auth.session

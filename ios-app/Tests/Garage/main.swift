@@ -304,4 +304,55 @@ try AccountGarage.activate(owner: "test-brother", verifiedEmail: "brother@exampl
 expect(GaragePlus.load(PhoneDriveReport.self, key: "phone-drive-test") == nil, "GPS report is account private")
 try AccountGarage.activate(owner: "test-balazs", verifiedEmail: AccountGarage.personalEmail)
 
+
+// Stationary stops require continuous observations and survive report backups.
+var detector = StopDetector()
+for t in 0...80 { detector.observe(JourneyPoint(time: Double(t),latitude: 47,longitude: 19,speed: 0),stopped: true) }
+expect(detector.stops.count == 1 && detector.stops[0].duration == 80,"continuous stop grows one event")
+detector.observe(JourneyPoint(time: 200,latitude: 47,longitude: 19,speed: 0),stopped: true)
+expect(detector.stops[0].end == 80,"GPS gap does not lengthen stopped duration")
+detector.observe(JourneyPoint(time: 201,latitude: 47,longitude: 19,speed: 30),stopped: false)
+for t in 202...220 { detector.observe(JourneyPoint(time: Double(t),latitude: 47,longitude: 19,speed: 0),stopped: true) }
+expect(detector.stops.count == 1,"short traffic stop remains inside drive without stop event")
+let longRoute = (0...200).map { JourneyPoint(time: Double($0),latitude: 0,longitude: Double($0)*0.0002,speed: 80) }
+let privatePlace = SavedPlace(name: "Home",latitude: 0,longitude: 0.02)
+let redacted = PrivateRoute.segments(longRoute,places: [privatePlace])
+expect(redacted.count == 2,"private middle location splits exported track")
+expect(redacted.flatMap { $0 }.allSatisfy { $0.distance(to: longRoute[0]) > 490 && $0.distance(to: longRoute[200]) > 490 && $0.distance(to: privatePlace.point) > 490 },"export points cannot reveal endpoint or private location")
+expect(PrivateRoute.segments(Array(longRoute.prefix(10)),places: []).isEmpty,"short private route exports no coordinates")
+expect(JourneyAnalysis.sameRoute(longRoute,longRoute),"same corridor recognized")
+let detour = longRoute.map { p -> JourneyPoint in var q = p; if p.time > 30 && p.time < 170 { q.latitude = 0.01 }; return q }
+expect(!JourneyAnalysis.sameRoute(longRoute,detour),"different route with identical endpoints stays separate")
+let currentObservation = RouteObservation(id: 10,start: 100,duration: 600,km: 4,stopped: 60,points: longRoute,reliable: true)
+let previousObservations = (1...3).map { RouteObservation(id: $0,start: Double($0),duration: 700,km: 4,stopped: 180,points: longRoute,reliable: true) }
+expect(JourneyAnalysis.feedback(currentObservation,previous: previousObservations) != nil,"feedback requires real comparable history")
+expect(JourneyAnalysis.feedback(currentObservation,previous: Array(previousObservations.prefix(2))) == nil,"no invented feedback with insufficient history")
+try PlacesStore.save(privatePlace)
+expect(PlacesStore.match(privatePlace.point,places: PlacesStore.all())?.id == privatePlace.id,"saved-place matching")
+var invalidPlace = privatePlace; invalidPlace.latitude = .nan
+do { try PlacesStore.save(invalidPlace); fatalError("invalid coordinate accepted") } catch {}
+var document = GarageDocument(title: "Invoice",data: Data([1,2,3]))
+try GarageLibrary.save(document)
+var entry = JournalEntry(title: "Oil",km: 1000,amount: 15000,documents: [document.id])
+try GarageLibrary.save(entry)
+let expenseBefore = db.query("SELECT COUNT(*) FROM expenses WHERE car_id=?",[CarStore.activeId]) { $0.int(0) }.first!
+entry.amount = 18000
+try GarageLibrary.save(entry)
+expect(db.query("SELECT COUNT(*) FROM expenses WHERE car_id=?",[CarStore.activeId]) { $0.int(0) }.first == expenseBefore,"editing service never duplicates expense")
+let expenseID = GarageLibrary.journal().first { $0.id == entry.id }!.expenseID!
+expect(db.query("SELECT amount FROM expenses WHERE id=?",[expenseID]) { $0.double(0) }.first == 18000,"linked service cost updates")
+let libraryBackup = Backup.makeData()!
+try GarageLibrary.removeDocument(document.id)
+expect(GarageLibrary.journal().first { $0.id == entry.id }!.documents.isEmpty,"removed attachments do not leave broken references")
+_ = try Backup.restore(data: libraryBackup)
+expect(GarageLibrary.documents().first { $0.id == document.id }?.data == Data([1,2,3]),"invoice bytes survive complete backup")
+document.data = Data(repeating: 0,count: 2_000_001)
+do { try GarageLibrary.save(document); fatalError("oversized document accepted") } catch {}
+expect(GarageLibrary.documents().first { $0.id == document.id }?.data?.count == 3,"failed attachment update preserves original")
+try GarageLibrary.removeEntry(entry.id)
+expect(db.query("SELECT COUNT(*) FROM expenses WHERE id=?",[expenseID]) { $0.int(0) }.first == 0,"service removal removes linked cost")
+try AccountGarage.activate(owner: "test-brother",verifiedEmail: "brother@example.com")
+expect(GarageLibrary.documents().isEmpty && PlacesStore.all().isEmpty,"places and documents isolated between accounts")
+try AccountGarage.activate(owner: "test-balazs",verifiedEmail: AccountGarage.personalEmail)
+
 print("Garage integration checks passed: \(checks)")

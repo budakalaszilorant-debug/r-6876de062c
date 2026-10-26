@@ -37,10 +37,11 @@ struct RootView: View {
                             Text(tr("Jelentkezz be a saját autóidhoz, vagy add hozzá az első autódat.", "Sign in to access your cars, or add your first car."))
                             Button(tr("Autó hozzáadása", "Add car")) { showGarage = true }
                         }
+                        NavigationLink(tr("Családi garázs", "Family garage")) { FamilyGarageView() }
                         CloudSection()
                     }.navigationTitle(tr("Garázs", "Garage"))
                 }
-            } else if vSize == .compact && tab != 2 {
+            } else if vSize == .compact && tab == 0 && monitor.isLive {
                 // Fekvő telefon: teljes képernyős műszerfal
                 LandscapeDashboard()
             } else {
@@ -51,20 +52,17 @@ struct RootView: View {
                             .padding(10)
                     }
                     TabView(selection: $tab) {
-                        DashboardView()
-                            .tabItem { Label(tr("Műszerfal", "Dashboard"), systemImage: "speedometer") }
+                        OverviewView()
+                            .tabItem { Label(tr("Áttekintés", "Overview"), systemImage: "square.grid.2x2") }
                             .tag(0)
-                        DriveView()
-                            .tabItem { Label(tr("G-erő", "G-force"), systemImage: "scope") }
-                            .tag(1)
                         TripsView()
                             .tabItem { Label(tr("Utak", "Trips"), systemImage: "map") }
                             .tag(2)
-                        CarView()
-                            .tabItem { Label(tr("Autó", "Car"), systemImage: "car") }
+                        GarageHubView()
+                            .tabItem { Label(tr("Garázs", "Garage"), systemImage: "car.2") }
                             .tag(3)
                         SettingsView()
-                            .tabItem { Label(tr("Beállítások", "Settings"), systemImage: "gearshape") }
+                            .tabItem { Label(tr("Profil", "Profile"), systemImage: "person.crop.circle") }
                             .tag(4)
                     }
                 }

@@ -51,7 +51,7 @@ struct CarHomeHeader: View {
     var body: some View {
         Button { edit = true } label: {
             ZStack(alignment: .bottomLeading) {
-                GaragePhoto(encoded: settings.carPhoto).frame(height: 150).clipped()
+                GaragePhoto(encoded: settings.carPhoto).frame(height: 230).clipped()
                 LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -61,7 +61,7 @@ struct CarHomeHeader: View {
                     Spacer()
                     Image(systemName: "slider.horizontal.3").padding(10).background(.ultraThinMaterial, in: Circle())
                 }.padding(16).foregroundStyle(.white)
-            }.frame(height: 150).clipShape(RoundedRectangle(cornerRadius: 20))
+            }.frame(height: 230).clipShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(settings.carName + ", " + tr("Megjelenés szerkesztése", "Edit appearance"))
@@ -77,7 +77,7 @@ private struct PhotoInput: View {
     @State private var loading = false
     var body: some View {
         VStack(alignment: .leading) {
-            if encoded != nil { GaragePhoto(encoded: encoded).frame(height: 150).clipped().clipShape(RoundedRectangle(cornerRadius: 12)) }
+            if encoded != nil { GaragePhoto(encoded: encoded).frame(height: 230).clipped().clipShape(RoundedRectangle(cornerRadius: 12)) }
             PhotosPicker(selection: $selection, matching: .images) {
                 Label(tr("Fotó kiválasztása", "Choose photo"), systemImage: "photo")
             }.disabled(loading)
@@ -243,9 +243,9 @@ struct HandoverView: View {
                         LabeledContent(tr("Naplózott kiadások", "Logged expenses"), value: String(format: "%.0f Ft", row.recordedCosts(car: car)))
                         Text(tr("Az időszak tankolásai és egyéb kiadásai; nem automatikus tartozás.", "Fuel purchases and other logged expenses during this period; not an automatic debt.")).font(.caption).foregroundStyle(.secondary)
                         if !row.note.isEmpty { Text(row.note) }
-                        if let photo = row.startPhoto { GaragePhoto(encoded: photo).frame(height: 150).clipped() }
+                        if let photo = row.startPhoto { GaragePhoto(encoded: photo).frame(height: 230).clipped() }
                         if let end = row.end { Text(end, style: .date); Text(row.returnNote) }
-                        if let photo = row.endPhoto { GaragePhoto(encoded: photo).frame(height: 150).clipped() }
+                        if let photo = row.endPhoto { GaragePhoto(encoded: photo).frame(height: 230).clipped() }
                     }
                 }
             }.navigationTitle(tr("Autóátadás", "Car handover"))

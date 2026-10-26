@@ -195,6 +195,7 @@ struct ServiceDoneSheet: View {
     @State private var date = Date()
     @State private var interval = ""
     @State private var cost = ""
+    @State private var saveError: String?
 
     var body: some View {
         NavigationStack {
@@ -234,6 +235,7 @@ struct ServiceDoneSheet: View {
                     }
                 }
             }
+            .alert(tr("Nem sikerült menteni", "Could not save"),isPresented: Binding(get: { saveError != nil },set: { if !$0 { saveError = nil } })) { Button("OK") {} } message: { Text(saveError ?? "") }
             .navigationTitle(item.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -244,10 +246,12 @@ struct ServiceDoneSheet: View {
                         if let i = Double(interval), i >= 1000, i != item.intervalKm {
                             ServiceStore.setInterval(item.id, km: i)
                         }
-                        ServiceStore.markDone(item.id, km: v, date: date)
-                        if let c = Double(cost.replacingOccurrences(of: " ", with: "")), c > 0 {
-                            ExpenseStore.add(date: date, category: .service, amount: c, note: item.name)
-                        }
+                        do {
+                            try GarageLibrary.importLegacy()
+                            let amount = Double(cost.replacingOccurrences(of: " ", with: "")) ?? 0
+                            try GarageLibrary.save(JournalEntry(title: item.name,date: date,km: v,amount: amount),completedItem: item.id)
+                            UserDefaults.standard.removeObject(forKey: "svcNotified-\(CarStore.activeId)-\(item.id)")
+                        } catch { saveError = error.localizedDescription; return }
                         Haptics.success()
                         onSave()
                         dismiss()

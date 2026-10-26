@@ -13,6 +13,7 @@ struct TripReplayView: View {
     var events: [PhoneDriveEvent] = []
     var simplified = false
 
+    @State private var rate = 5.0
     @State private var position = 0.0      // 0...1 az út mentén
     @State private var playing = false
     @State private var timer: Timer?
@@ -68,6 +69,9 @@ struct TripReplayView: View {
                     }
                     .accessibilityElement(children: .contain)
 
+                    Picker(tr("Lejátszási sebesség", "Playback speed"), selection: $rate) {
+                        Text("1×").tag(1.0); Text("5×").tag(5.0); Text("20×").tag(20.0)
+                    }.pickerStyle(.segmented)
                     // 1:1 követés: a csúszka húzása közvetlenül mozgatja a jelölőt
                     Slider(value: $position, in: 0...1) { editing in
                         if editing { stop() }
@@ -125,7 +129,7 @@ struct TripReplayView: View {
         playing = true
         // Az egész út kb. 20 mp alatt játszódik le.
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-            position = min(1, position + 0.05 / 20)
+            position = min(1, position + 0.05 * rate / max(1, (track.last?.t ?? startT) - startT))
             if position >= 1 { stop() }
         }
     }

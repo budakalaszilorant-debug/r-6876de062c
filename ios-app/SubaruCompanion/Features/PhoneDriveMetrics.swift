@@ -36,6 +36,8 @@ struct PhoneDriveReport: Codable {
     var confirmedMovement: Bool? = false
     var lastObservedAt: Double?
     var endReason: String?
+    var stops: [DriveStop]?
+    var edited: Bool?
 }
 
 /// Conservative GPS-only measurement. Gaps and jumps are never bridged into distance.
@@ -49,6 +51,7 @@ struct PhoneDriveMetrics {
     private(set) var isMoving = false
     private var candidate: [DriveFix] = []
     private var recentSpeeds: [Double] = []
+    private var stopDetector = StopDetector()
     private var lastEventTime = -Double.infinity
 
     mutating func accept(_ fix: DriveFix, now: Double, stationary: Bool = false) -> Bool {
@@ -74,6 +77,10 @@ struct PhoneDriveMetrics {
         last = fix
         report.lastObservedAt = fix.time
         let interval = dt <= 10 ? dt : 0
+        let point = JourneyPoint(time: fix.time, latitude: fix.latitude, longitude: fix.longitude, speed: fix.speed * 3.6)
+        let stopped = reliable && (stationary || fix.speed < 1) && report.confirmedMovement == true
+        stopDetector.observe(point, stopped: stopped)
+        report.stops = stopDetector.stops
         report.measuredSeconds += interval
         guard reliable else {
             speed = nil; isMoving = false; candidate = []; recentSpeeds = []

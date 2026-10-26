@@ -33,6 +33,11 @@ struct TripListView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 PhoneDriveCard()
+                HStack {
+                    NavigationLink(tr("Útvonalak összehasonlítása", "Compare routes")) { RouteInsightsView() }
+                    Spacer()
+                    NavigationLink(tr("Helyek", "Places")) { PlacesView() }
+                }.font(.subheadline)
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: tr("Hol parkolok", "Where I parked"))
                     ParkingCard(spot: monitor.parking)
@@ -94,7 +99,7 @@ struct TripRow: View {
         Card {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(Fmt.date(trip.start))
+                    Text(JourneyStore.title(trip))
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.text)
                     Text(subtitle)
@@ -122,6 +127,9 @@ struct TripDetailView: View {
     @State private var track: [TrackPoint] = []
     @State private var tag = ""
     @State private var confirmDelete = false
+    @State private var editing = false
+    @State private var sharing = false
+    @State private var fullscreen = false
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -139,7 +147,15 @@ struct TripDetailView: View {
                     }
                 }
 
+                JourneyDetails(trip: trip)
                 if let report = trip.phoneReport { PhoneDriveReportCard(report: report, trip: trip) }
+                HStack {
+                    Button { fullscreen = true } label: { Label(tr("Térkép", "Map"),systemImage: "arrow.up.left.and.arrow.down.right") }
+                    Spacer()
+                    Button { editing = true } label: { Label(tr("Szerkesztés", "Edit"),systemImage: "scissors") }
+                    Spacer()
+                    Button { sharing = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel(tr("Útkártya megosztása", "Share drive card"))
+                }.padding(.vertical,12)
 
                 Picker("", selection: $tag) {
                     Text(tr("Nincs címke", "No tag")).tag("")
@@ -177,7 +193,10 @@ struct TripDetailView: View {
             .padding(16)
         }
         .screenBackground()
-        .navigationTitle(Fmt.date(trip.start))
+        .navigationTitle(JourneyStore.title(trip))
+        .sheet(isPresented: $editing) { JourneyEditView(trip: trip) { onDelete(); dismiss() } }
+        .sheet(isPresented: $sharing) { JourneyShareView(trip: trip) }
+        .fullScreenCover(isPresented: $fullscreen) { JourneyMapView(trip: trip) }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .onAppear {
