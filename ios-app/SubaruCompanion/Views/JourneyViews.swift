@@ -237,3 +237,28 @@ struct JourneyEditView: View {
         }
     }
 }
+
+struct JourneyArchiveView: View {
+    let onRestore: () -> Void
+    @State private var archives = JourneyStore.archives()
+    @State private var selected: JourneyArchive?
+    @State private var error: String?
+    var body: some View {
+        List {
+            ForEach(archives) { archive in
+                Button { selected = archive } label: {
+                    VStack(alignment: .leading) {
+                        Text(archive.date,style: .date)
+                        Text(tr("\(archive.originals.count) eredeti út visszaállítása", "Restore \(archive.originals.count) original trips")).font(.subheadline)
+                    }
+                }
+            }
+            if let error { Text(error).foregroundStyle(.red) }
+        }.navigationTitle(tr("Eredeti utak", "Original trips"))
+        .confirmationDialog(tr("A szerkesztett változatokat lecseréljük az eredetiekre. Folytatod?", "Replace edited versions with their originals?"),isPresented: Binding(get: { selected != nil },set: { if !$0 { selected = nil } })) {
+            Button(tr("Visszaállítás", "Restore")) {
+                do { if let selected { try JourneyStore.restore(selected) }; archives = JourneyStore.archives(); onRestore() } catch { self.error = error.localizedDescription }
+            }
+        }
+    }
+}

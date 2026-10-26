@@ -27,6 +27,7 @@ revoke all on public.family_garages,public.family_members,public.family_sections
 
 create function public.family_action(p_action text,p_garage uuid default null,p_data jsonb default '{}')
 returns jsonb language plpgsql security definer set search_path='' as $$
+<<family>>
 declare
  u uuid := auth.uid(); g public.family_garages; m public.family_members; inv public.family_invites;
  rid uuid; token text; section_name text; r text[]; w text[]; records jsonb; current_revision bigint; result jsonb;
@@ -73,7 +74,7 @@ begin
       or e->>'id' is null or e->>'title' is null or jsonb_typeof(e->'date') is distinct from 'number'
       or exists(select 1 from jsonb_object_keys(e) k where k not in ('id','title','date','amount','km','note'))) then raise exception 'invalid record'; end if;
    if (select count(*) from jsonb_array_elements(records)) <> (select count(distinct e->>'id') from jsonb_array_elements(records) e) then raise exception 'duplicate id'; end if;
-   update public.family_sections set records=family_action.records,revision=revision+1 where garage=g.id and section=section_name;
+   update public.family_sections set records=family.records,revision=revision+1 where garage=g.id and section=section_name;
    return jsonb_build_object('revision',current_revision+1);
  elsif p_action='leave' then
    if g.owner=u then raise exception 'owner cannot leave'; end if;

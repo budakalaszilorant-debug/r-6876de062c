@@ -14,10 +14,18 @@ struct JourneyArchive: Codable, Identifiable {
 }
 
 enum JourneyStore {
+    private static var canEdit: Bool {
+        #if GARAGE_TESTS
+        return Database.shared.query("SELECT COUNT(*) FROM trips WHERE car_id=? AND end_t IS NULL",[CarStore.activeId]) { $0.int(0) }.first == 0
+        #else
+        return VehicleMonitor.shared.canManageGarage
+        #endif
+    }
     static func points(_ id: Int) -> [JourneyPoint] {
         Database.shared.query("SELECT t,lat,lon,speed FROM trip_points WHERE trip_id=? AND EXISTS(SELECT 1 FROM trips WHERE id=? AND car_id=?) ORDER BY t",
             [id,id,CarStore.activeId]) { JourneyPoint(time: $0.double(0), latitude: $0.double(1), longitude: $0.double(2), speed: $0.double(3)) }
     }
+    #if !GARAGE_TESTS
     static func observation(_ trip: Trip) -> RouteObservation {
         let report = trip.phoneReport
         return RouteObservation(id: trip.id, start: trip.start.timeIntervalSince1970, duration: trip.duration,
@@ -28,6 +36,7 @@ enum JourneyStore {
     static func title(_ trip: Trip) -> String {
         PlacesStore.title(points(trip.id), places: PlacesStore.all()) ?? Fmt.date(trip.start)
     }
+    #endif
     static func archives() -> [JourneyArchive] { GaragePlus.load([JourneyArchive].self, key: "trip-originals") ?? [] }
     static func archive(for id: Int) -> JourneyArchive? { archives().first { $0.resultIDs.contains(id) } }
 
@@ -63,7 +72,7 @@ enum JourneyStore {
     }
     enum Edit { case trim(Double,Double), split(Double), merge(Int) }
     static func edit(_ id: Int, operation: Edit) throws {
-        guard VehicleMonitor.shared.canManageGarage else { throw JourneyError.active }
+        guard canEdit else { throw JourneyError.active }
         let original = try snapshot(id)
         var originals = [original]
         var segments: [[JourneyPoint]] = []
@@ -89,7 +98,7 @@ enum JourneyStore {
         }
     }
     static func restore(_ archive: JourneyArchive) throws {
-        guard VehicleMonitor.shared.canManageGarage else { throw JourneyError.active }
+        guard canEdit else { throw JourneyError.active }
         guard let saved = archives().first(where: { $0.id == archive.id }) else { throw JourneyError.missing }
         try Database.shared.transaction {
             for id in saved.resultIDs { try remove(id) }

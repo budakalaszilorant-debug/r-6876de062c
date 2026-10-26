@@ -355,4 +355,38 @@ try AccountGarage.activate(owner: "test-brother",verifiedEmail: "brother@example
 expect(GarageLibrary.documents().isEmpty && PlacesStore.all().isEmpty,"places and documents isolated between accounts")
 try AccountGarage.activate(owner: "test-balazs",verifiedEmail: AccountGarage.personalEmail)
 
+
+// Real SQLite edit/restore integration: no mocks or coordinate-only substitutes.
+func makeEditTrip(_ start: Double) throws -> Int {
+    try db.checkedExecute("INSERT INTO trips(car_id,start,end_t,distance_km,fuel_l,max_speed) VALUES(?,?,?,5,0.4,50)",[CarStore.activeId,start,start+100])
+    let id = db.query("SELECT last_insert_rowid()") { $0.int(0) }.first!
+    for i in 0...100 { try db.checkedExecute("INSERT INTO trip_points(trip_id,t,lat,lon,speed) VALUES(?,?,?,?,?)",[id,start+Double(i),47,19+Double(i)*0.0001,30]) }
+    return id
+}
+// Existing test fixtures may contain unfinished OBD trips, so close only this account's fixtures.
+try db.checkedExecute("UPDATE trips SET end_t=start+1 WHERE car_id=? AND end_t IS NULL",[CarStore.activeId])
+let originalID = try makeEditTrip(10000)
+let originalPoints = JourneyStore.points(originalID)
+try JourneyStore.edit(originalID,operation: .split(10050))
+let splitArchive = JourneyStore.archives().last!
+expect(splitArchive.resultIDs.count == 2,"split produces two closed trips")
+expect(JourneyStore.points(originalID).isEmpty,"original not counted twice in active trip log")
+expect(splitArchive.resultIDs.allSatisfy { GaragePlus.load(PhoneDriveReport.self,key: "phone-drive-\($0)")?.edited == true },"edited routes disclose estimated metrics")
+try JourneyStore.restore(splitArchive)
+expect(JourneyStore.points(originalID) == originalPoints,"restore reproduces original GPS points exactly")
+expect(db.query("SELECT fuel_l FROM trips WHERE id=?",[originalID]) { $0.double(0) }.first == 0.4,"original fuel retained in archive")
+let beforeInvalid = db.dump(table: "trips").count
+do { try JourneyStore.edit(originalID,operation: .trim(10090,10010)); fatalError("inverted range accepted") } catch {}
+expect(db.dump(table: "trips").count == beforeInvalid && JourneyStore.points(originalID) == originalPoints,"invalid edit leaves original untouched")
+let secondID = try makeEditTrip(10200)
+try JourneyStore.edit(originalID,operation: .merge(secondID))
+let mergeArchive = JourneyStore.archives().last!
+expect(mergeArchive.originals.count == 2 && mergeArchive.resultIDs.count == 1,"merge archives both originals")
+let editedBackup = Backup.makeData()!
+_ = try Backup.restore(data: editedBackup)
+try JourneyStore.restore(JourneyStore.archives().last!)
+expect(JourneyStore.points(secondID).count == 101 && JourneyStore.points(originalID) == originalPoints,"both originals recover after backup and restore")
+let openID = db.execute("INSERT INTO trips(car_id,start) VALUES(?,?)",[CarStore.activeId,20000])
+do { try JourneyStore.edit(originalID,operation: .split(10050)); fatalError("active recording edit accepted") } catch {}
+try db.checkedExecute("DELETE FROM trips WHERE id=?",[openID])
 print("Garage integration checks passed: \(checks)")

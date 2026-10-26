@@ -62,6 +62,7 @@ enum GarageLibrary {
             // The stored association is authoritative, never an incoming expense ID.
             saved.expenseID = values.first(where: { $0.id == entry.id })?.expenseID
             let db = Database.shared
+            if let id = saved.expenseID, db.query("SELECT COUNT(*) FROM expenses WHERE id=? AND car_id=?",[id,CarStore.activeId],map: { $0.int(0) }).first != 1 { saved.expenseID = nil }
             if let id = saved.expenseID {
                 try db.checkedExecute("UPDATE expenses SET date=?,amount=?,note=? WHERE id=? AND car_id=?",
                     [entry.date.timeIntervalSince1970, entry.amount, entry.title, id, CarStore.activeId])

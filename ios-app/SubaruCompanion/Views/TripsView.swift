@@ -38,6 +38,9 @@ struct TripListView: View {
                     Spacer()
                     NavigationLink(tr("Helyek", "Places")) { PlacesView() }
                 }.font(.subheadline)
+                if !JourneyStore.archives().isEmpty {
+                    NavigationLink(tr("Szerkesztések eredeti útjai", "Originals of edited trips")) { JourneyArchiveView(onRestore: reload) }
+                }
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: tr("Hol parkolok", "Where I parked"))
                     ParkingCard(spot: monitor.parking)
