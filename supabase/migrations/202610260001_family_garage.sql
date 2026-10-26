@@ -14,6 +14,7 @@ create table public.family_sections (
  revision bigint not null default 0, records jsonb not null default '[]', primary key(garage,section),
  check(jsonb_typeof(records)='array' and octet_length(records::text)<=1000000)
 );
+create index family_member_lookup on public.family_members(member);
 create table public.family_invites (
  token_hash text primary key, garage uuid references public.family_garages(id) on delete cascade,
  reads text[] not null, writes text[] not null, expires timestamptz not null default now()+interval '7 days',
@@ -71,8 +72,14 @@ begin
    if (p_data->>'revision')::bigint is distinct from current_revision then raise sqlstate 'PT409' using message='Reload this section before editing'; end if;
    if jsonb_typeof(records) is distinct from 'array' or jsonb_array_length(records)>2000 or octet_length(records::text)>1000000 then raise exception 'invalid records'; end if;
    if exists(select 1 from jsonb_array_elements(records) e where jsonb_typeof(e)<>'object' or length(e->>'title') not between 1 and 200
-      or e->>'id' is null or e->>'title' is null or jsonb_typeof(e->'date') is distinct from 'number'
+      or e->>'id' is null or length(e->>'id') not between 1 and 150 or e->>'title' is null
+      or jsonb_typeof(e->'title') is distinct from 'string' or jsonb_typeof(e->'id') is distinct from 'string'
+      or jsonb_typeof(e->'date') is distinct from 'number' or jsonb_typeof(e->'note') is distinct from 'string' or length(e->>'note')>10000
+      or (e ? 'amount' and jsonb_typeof(e->'amount') not in ('number','null'))
+      or (e ? 'km' and jsonb_typeof(e->'km') not in ('number','null'))
       or exists(select 1 from jsonb_object_keys(e) k where k not in ('id','title','date','amount','km','note'))) then raise exception 'invalid record'; end if;
+   if exists(select 1 from jsonb_array_elements(records) e where (e->>'amount')::numeric < 0 or (e->>'km')::numeric < 0
+       or abs((e->>'date')::numeric)>100000000000 or (e->>'amount')::numeric>1000000000000 or (e->>'km')::numeric>10000000) then raise exception 'invalid values'; end if;
    if (select count(*) from jsonb_array_elements(records)) <> (select count(distinct e->>'id') from jsonb_array_elements(records) e) then raise exception 'duplicate id'; end if;
    update public.family_sections set records=family.records,revision=revision+1 where garage=g.id and section=section_name;
    return jsonb_build_object('revision',current_revision+1);

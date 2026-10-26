@@ -141,7 +141,7 @@ struct TripDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if let report = trip.phoneReport { PhoneDriveSummaryHeader(trip: trip, report: report) }
                 if track.count > 1 && trip.phoneReport?.confirmedMovement != false {
-                    TripReplayView(track: track, events: trip.phoneReport?.events ?? [], simplified: trip.phoneReport != nil)
+                    TripReplayView(track: track, events: trip.phoneReport?.events ?? [], stops: trip.phoneReport?.stops ?? [], simplified: trip.phoneReport != nil)
                 } else {
                     if trip.phoneReport?.confirmedMovement != false {
                     EmptyState(icon: "location.slash", title: tr("Nincs GPS nyomvonal", "No GPS track"),

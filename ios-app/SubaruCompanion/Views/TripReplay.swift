@@ -11,6 +11,7 @@ final class ColoredPolyline: MKPolyline {
 struct TripReplayView: View {
     let track: [TrackPoint]
     var events: [PhoneDriveEvent] = []
+    var stops: [DriveStop] = []
     var simplified = false
 
     @State private var rate = 5.0
@@ -33,7 +34,7 @@ struct TripReplayView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ReplayMap(track: track, marker: current.coordinate, events: events, simplified: simplified)
+            ReplayMap(track: track, marker: current.coordinate, events: events, stops: stops, simplified: simplified)
                 .frame(height: simplified ? 350 : 300)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
@@ -176,6 +177,7 @@ struct ReplayMap: UIViewRepresentable {
     let track: [TrackPoint]
     let marker: CLLocationCoordinate2D
     var events: [PhoneDriveEvent] = []
+    var stops: [DriveStop] = []
     var simplified = false
 
     func makeUIView(context: Context) -> MKMapView {
@@ -247,13 +249,19 @@ struct ReplayMap: UIViewRepresentable {
             annotation.subtitle = "\(Fmt.int(event.speed)) km/h · \(Date(timeIntervalSince1970: event.time).formatted(date: .omitted, time: .standard))"
             map.addAnnotation(annotation)
         }
+        for stop in stops {
+            let name = PlacesStore.match(JourneyPoint(time: stop.start,latitude: stop.latitude,longitude: stop.longitude,speed: 0),places: PlacesStore.all())?.name
+            let annotation = DriveAnnotation(coordinate: CLLocationCoordinate2D(latitude: stop.latitude,longitude: stop.longitude),title: name ?? tr("Megállás", "Stop"),glyph: "pause.fill",tint: .systemTeal)
+            annotation.subtitle = DriveReportFormat.duration(stop.duration)
+            map.addAnnotation(annotation)
+        }
         if bounds.isNull, let first = track.first {
             map.setRegion(MKCoordinateRegion(center: first.coordinate, latitudinalMeters: 700, longitudinalMeters: 700), animated: false)
         }
     }
 
     func updateUIView(_ map: MKMapView, context: Context) {
-        let signature = "\(track.count)-\(track.first?.t ?? 0)-\(track.last?.t ?? 0)-\(events.count)"
+        let signature = "\(track.count)-\(track.first?.t ?? 0)-\(track.last?.t ?? 0)-\(events.count)-\(stops.count)"
         if context.coordinator.signature != signature {
             context.coordinator.signature = signature
             drawRoute(map)

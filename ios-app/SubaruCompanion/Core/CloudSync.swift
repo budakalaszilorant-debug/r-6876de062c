@@ -363,7 +363,12 @@ final class CloudSync: ObservableObject {
 
     func family(_ action: String, garage: UUID? = nil, data: [String:Any] = [:]) async throws -> Data {
         guard ready, let owner else { throw Failure.configuration }
-        return try await request("rpc/family_action", owner: owner, body: ["p_action":action,"p_garage":garage.map { $0.uuidString } as Any? ?? NSNull(),"p_data":data])
+        do {
+            return try await request("rpc/family_action", owner: owner, body: ["p_action":action,"p_garage":garage.map { $0.uuidString } as Any? ?? NSNull(),"p_data":data])
+        } catch Failure.conflict { throw FamilyGarageError.changed }
+        catch Failure.http(404) { throw FamilyGarageError.setup }
+        catch Failure.http(403) { throw FamilyGarageError.permission }
+        catch { throw FamilyGarageError.unavailable }
     }
 
     private func request(_ path: String, owner id: UUID, query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> Data {

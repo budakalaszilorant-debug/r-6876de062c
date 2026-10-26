@@ -24,7 +24,7 @@ struct PhoneDriveCard: View {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let fresh = drive.lastFixDate.map { context.date.timeIntervalSince($0) < 15 } ?? false
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(!fresh ? tr("GPS-jelre várunk", "Waiting for GPS") : drive.isMoving ? tr("Az utad rögzül", "Recording your drive") : tr("Várakozás indulásra", "Waiting for movement"))
+                            Text(!fresh ? tr("GPS-jelre várunk", "Waiting for GPS") : drive.isMoving ? tr("Az utad rögzül", "Recording your drive") : drive.report.confirmedMovement == true ? tr("Megállás · a rögzítés folytatódik", "Stopped · recording continues") : tr("Várakozás indulásra", "Waiting for movement"))
                                 .font(.title2.bold())
                             Text(tr("Lezárhatod a képernyőt. Az összesítőt leállítás után mutatjuk.", "You can lock the screen. Your report appears when you stop."))
                                 .font(.subheadline).foregroundStyle(Theme.text2)

@@ -53,6 +53,21 @@ do $$ begin
  begin perform public.family_action('join',null,jsonb_build_object('token',current_setting('test.cancelled_invite'))); raise exception 'cancelled invite'; exception when insufficient_privilege then null; end;
 end $$;
 reset role;
+-- Expired tokens are rejected even if they have never been used.
+insert into public.family_invites(token_hash,garage,reads,writes,expires)
+values(encode(sha256(convert_to('expired-test-token','UTF8')),'hex'),current_setting('test.family_id')::uuid,array['service'],'{}',now()-interval '1 second');
+set role authenticated;
+do $$ begin
+ begin perform public.family_action('join',null,'{"token":"expired-test-token"}'); raise exception 'expired invitation accepted'; exception when insufficient_privilege then null; end;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
+do $$ begin
+ begin
+   perform public.family_action('write',current_setting('test.family_id')::uuid,'{"section":"trips","revision":0,"records":[{"id":"t1","title":"Trip","date":100,"note":"","km":"invalid"}]}');
+   raise exception 'malformed number accepted';
+ exception when raise_exception then assert sqlerrm='invalid record'; end;
+end $$;
+reset role;
 do $$ begin
  assert not has_function_privilege('anon','public.family_action(text,uuid,jsonb)','EXECUTE'),'anonymous cannot access family';
  assert not has_table_privilege('authenticated','public.family_sections','SELECT'),'no direct reads bypass permissions';

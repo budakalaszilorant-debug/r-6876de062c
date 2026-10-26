@@ -103,21 +103,36 @@ struct JourneyMapView: View {
     private var track: [TrackPoint] { TripStore.track(trip.id) }
     var body: some View {
         NavigationStack {
-            RouteMap(route: track.map(\.coordinate)).ignoresSafeArea(edges: .bottom)
+            Group {
+                if let last = track.last { ReplayMap(track: track,marker: last.coordinate,events: trip.phoneReport?.events ?? [],stops: trip.phoneReport?.stops ?? [],simplified: true) }
+                else { Text(tr("Nincs rögzített nyomvonal", "No recorded route")) }
+            }.ignoresSafeArea(edges: .bottom)
                 .navigationTitle(JourneyStore.title(trip)).navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button(tr("Kész", "Done")) { details = false; dismiss() } }
                 .sheet(isPresented: $details) {
                     ScrollView {
                         VStack(alignment: .leading,spacing: 20) {
-                            Text(JourneyStore.title(trip)).font(.title2.bold())
+                            HStack(alignment: .top) {
+                                Text(JourneyStore.title(trip)).font(.title2.bold())
+                                Spacer()
+                                Button(tr("Kész", "Done")) { details = false; dismiss() }.font(.headline)
+                            }
                             Text("\(Fmt.one(trip.distanceKm)) km · \(DriveReportFormat.duration(trip.duration))").font(.headline)
                             JourneyDetails(trip: trip)
-                            if track.count > 1 { TripReplayView(track: track,events: trip.phoneReport?.events ?? [],simplified: true) }
+                            if track.count > 1 { TripReplayView(track: track,events: trip.phoneReport?.events ?? [], stops: trip.phoneReport?.stops ?? [],simplified: true) }
                             Button(tr("Térkép bezárása", "Close map")) { details = false; dismiss() }
                         }.padding(24)
                     }.presentationDetents([.height(180),.medium,.large]).presentationDragIndicator(.visible)
+                        .modifier(MapPanelInteraction())
                         .interactiveDismissDisabled()
                 }
         }
+    }
+}
+
+private struct MapPanelInteraction: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) { content.presentationBackgroundInteraction(.enabled(upThrough: .medium)) }
+        else { content }
     }
 }

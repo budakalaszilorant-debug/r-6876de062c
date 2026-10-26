@@ -1,5 +1,17 @@
 import Foundation
 
+enum FamilyGarageError: LocalizedError {
+    case setup, permission, changed, unavailable
+    var errorDescription: String? {
+        switch self {
+        case .setup: return tr("A családi garázs szerveroldali frissítése még nincs telepítve. A saját garázs mentése ettől függetlenül működik.", "The family garage server update is not installed. Private garage backups are unaffected.")
+        case .permission: return tr("Ehhez nincs hozzáférésed, vagy a meghívó lejárt / már felhasználták.", "Access is unavailable, or the invitation has expired / already been used.")
+        case .changed: return tr("Közben más is módosította ezt a naplót. Zárd be a szerkesztőt, frissítsd az adatokat, majd add hozzá a változtatásod.", "Someone else changed this journal. Close the editor, reload, then apply your changes.")
+        case .unavailable: return tr("Nem sikerült kapcsolódni a közös garázshoz. Az adatok megmaradtak; próbáld újra később.", "Could not access the shared garage. Your records are preserved; try again later.")
+        }
+    }
+}
+
 enum FamilySection: String, CaseIterable, Identifiable, Codable {
     case service, costs, trips
     var id: String { rawValue }
@@ -45,7 +57,7 @@ enum FamilyExport {
         case .service:
             return GarageLibrary.journal().map { FamilyRecord(id: $0.id.uuidString,title: $0.title,date: $0.date.timeIntervalSince1970,amount: $0.amount,km: $0.km,note: $0.parts + "\n" + $0.workshop) }
         case .costs:
-            return ExpenseStore.all().map { FamilyRecord(id: "expense-\($0.id)",title: $0.category.label,date: $0.date.timeIntervalSince1970,amount: $0.amount,note: $0.note) }
+            return ExpenseStore.all().map { FamilyRecord(id: "expense-\($0.id)",title: $0.category.label,date: $0.date.timeIntervalSince1970,amount: $0.amount,note: $0.note) } + FuelStore.all().map { FamilyRecord(id: "fuel-\($0.id)",title: tr("Tankolás", "Refuelling"),date: $0.date.timeIntervalSince1970,amount: $0.cost,note: "\(Fmt.one($0.liters)) l") }
         case .trips:
             return TripStore.all().map { FamilyRecord(id: "trip-\($0.id)",title: tr("Rögzített út", "Recorded drive"),date: $0.start.timeIntervalSince1970,km: $0.distanceKm,note: DriveReportFormat.duration($0.duration)) }
         }

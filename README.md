@@ -102,6 +102,22 @@ Google szolgáltatói beállítások: [SOCIAL_LOGIN.md](supabase/SOCIAL_LOGIN.md
 
 ### Telefonos GPS-útnapló
 
+### Új áttekintés és úteszközök
+
+A négy fő fül: **Áttekintés / Utak / Garázs / Profil**. Az Áttekintés autófotót, havi rögzített km-t és kiadást, következő szervizt és útindítást mutat. A részletes műszerek élő kapcsolatnál nyithatók meg. A G-erő mérő a Garázsban maradt elérhető.
+
+- **Útrészletek:** nagy térkép, felhúzható részletek, 1×/5×/20× visszajátszás, indulás/érkezés, megállásjelölők. Legalább egy perc folyamatos állást külön megállásként naplóz; a rövid és hosszú megállások egyazon rögzítés részei maradnak, amíg kézzel be nem fejezed. Jelkimaradást nem tekint folyamatos megállásnak.
+- **Saját helyek:** térképen elhelyezhető Otthon/Munka/stb., automatikus útelnevezés. Külön privát jelölés a megosztáshoz.
+- **Útvonalak:** a legutóbbi 100 telefonos útból ugyanazon útvonal ideje, szórása és megállási átlaga. Legalább két megbízható mérés kell; az eltérő nyomvonalakat elkülöníti. Út utáni szöveges összevetéshez legalább három korábbi hasonló út szükséges. Hiányos és utólag szerkesztett utakból nem készül vezetési minősítés.
+- **Vágás / kettévágás / összefűzés:** az eredetik az appon belül és a teljes mentésben is megmaradnak. Az eredeti visszaállításáig ugyanaz a szerkesztés nem szerkeszthető tovább. Egy összefűzéshez az utak közt legalább 10 másodperc kell; a kimaradt távolságot nem becsüli meg. Az eredeti fogyasztás nem kerül át egy megváltoztatott útba. Aktív rögzítés alatt nincs szerkesztés.
+- **Útkártya:** megosztható PNG térképpel, távolsággal, idővel és opcionális autófotóval. A végpontok és privát helyek körül legalább 500 m rejtett; a rejtett részeket nem köti össze vonal. Teljesen elrejtett rövid útnál térkép nélkül készül a kártya. Megosztás előtt előnézet látható.
+- **Szervizkönyv:** kereshető javítások, km, dátum, alkatrészek, műhely és csatolt dokumentumok. A kapcsolt költség egyszer kerül a kiadásokba, és együtt frissül a szerviz szerkesztésekor. A korábbi szervizállapotok egyszer bekerülnek a könyvbe; régebbi, korábban nem tárolt előzményeket nem talál ki.
+- **Dokumentumtár:** PDF, kép, garancia, számla, cikkszám vagy saját jegyzet. Fájlonként 2 MB, autónként összesen 6 MB melléklet. A dokumentumok a teljes fiókmentés részei, nem csak a telefon fájlrendszerében maradnak.
+- **Fenntartás:** 12 havi kiadási oszlopdiagram, havi átlag, költség/rögzített km. A hiányzó kiadások és utak nem kapnak kitalált értéket; a lefedettség korlátait a felület jelzi.
+- **Családi garázs:** meghívásos, naplónkénti olvasási/írási jogokkal. A saját garázstól elkülönül. A szerveroldali bekapcsolás: [FAMILY_GARAGE.md](supabase/FAMILY_GARAGE.md).
+
+### GPS-rögzítés működése
+
 Az **Utak → Telefonos út → Út indítása** gomb autós Bluetooth/OBD kapcsolat nélkül is rögzít. Indításkor az Utak oldalon marad egy egyszerű állapotkártya, a képernyő lezárható. Az **Út befejezése** gomb nyitja meg az összesítőt: táv, másodperc pontos idő, térképes visszajátszás és becsült vezetési események. A rögzítés állapota engedélyezett Élő tevékenységnél a zárolási képernyőn és a Dynamic Islanden is megjelenik. A GPS-utak nem módosítják a kilométerórát, és nem állítanak fogyasztási, telefonhasználati vagy sebességhatár-adatokat.
 
 - Helyhozzáférés és pontos helymeghatározás szükséges; engedéllyel lezárt képernyő mellett is rögzít. Kényszerített bezárás után a mentett pontok megmaradnak, az út megszakítottként jelenik meg.

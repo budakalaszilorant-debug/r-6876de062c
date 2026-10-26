@@ -161,8 +161,9 @@ enum PrivateRoute {
             // Equirectangular local projection checks the whole segment, not only its ends.
             for (center,r) in zones {
                 let scale = cos(center.latitude * .pi / 180)
-                let ax = (a.longitude-center.longitude)*111_320*scale, ay = (a.latitude-center.latitude)*111_320
-                let bx = (b.longitude-center.longitude)*111_320*scale, by = (b.latitude-center.latitude)*111_320
+                func delta(_ value: Double) -> Double { (value + 540).truncatingRemainder(dividingBy: 360) - 180 }
+                let ax = delta(a.longitude-center.longitude)*111_320*scale, ay = (a.latitude-center.latitude)*111_320
+                let bx = delta(b.longitude-center.longitude)*111_320*scale, by = (b.latitude-center.latitude)*111_320
                 let dx = bx-ax, dy = by-ay
                 let f = min(1,max(0,-(ax*dx+ay*dy)/max(0.001,dx*dx+dy*dy)))
                 if hypot(ax+f*dx,ay+f*dy) <= r { return false }

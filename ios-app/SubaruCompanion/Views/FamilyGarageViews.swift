@@ -1,7 +1,7 @@
 import SwiftUI
 
 private func familyError(_ error: Error) -> String {
-    tr("Nem sikerült a művelet. Ellenőrizd a kapcsolatot és frissítsd az adatokat. Ha most kapcsolod be a családi garázst, a szerveren az új családi adatbázis telepítése is szükséges.", "Could not complete. Check your connection and reload. First-time setup also requires the family database migration on the server.")
+    error is FamilyGarageError || error is JourneyError ? error.localizedDescription : FamilyGarageError.unavailable.localizedDescription
 }
 
 struct FamilyGarageView: View {

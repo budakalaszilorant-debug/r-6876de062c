@@ -163,14 +163,19 @@ struct RouteInsightsView: View {
 struct JourneyDetails: View {
     let trip: Trip
     @State private var feedback: String?
+    private func endpoint(start: Bool) -> String {
+        let points = JourneyStore.points(trip.id)
+        if let point = start ? points.first : points.last, let place = PlacesStore.match(point,places: PlacesStore.all()) { return place.name }
+        return start ? tr("Indulás", "Departure") : tr("Érkezés", "Arrival")
+    }
     var body: some View {
         VStack(alignment: .leading,spacing: 14) {
             HStack {
-                Label(tr("Indulás", "Departure"),systemImage: "circle")
+                Label(endpoint(start: true),systemImage: "circle")
                 Spacer(); Text(trip.start,style: .time)
             }
             HStack {
-                Label(tr("Érkezés", "Arrival"),systemImage: "flag.checkered")
+                Label(endpoint(start: false),systemImage: "flag.checkered")
                 Spacer(); if let end = trip.end { Text(end,style: .time) }
             }
             if let report = trip.phoneReport {
