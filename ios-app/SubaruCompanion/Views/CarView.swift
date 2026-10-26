@@ -243,13 +243,10 @@ struct ServiceDoneSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(tr("Mentés", "Save")) {
                         guard let v = Double(km) else { return }
-                        if let i = Double(interval), i >= 1000, i != item.intervalKm {
-                            ServiceStore.setInterval(item.id, km: i)
-                        }
                         do {
                             try GarageLibrary.importLegacy()
                             let amount = Double(cost.replacingOccurrences(of: " ", with: "")) ?? 0
-                            try GarageLibrary.save(JournalEntry(title: item.name,date: date,km: v,amount: amount),completedItem: item.id)
+                            try GarageLibrary.save(JournalEntry(title: item.name,date: date,km: v,amount: amount),completedItem: item.id, intervalKm: Double(interval))
                             UserDefaults.standard.removeObject(forKey: "svcNotified-\(CarStore.activeId)-\(item.id)")
                         } catch { saveError = error.localizedDescription; return }
                         Haptics.success()

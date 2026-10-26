@@ -5,6 +5,15 @@ struct JourneySnapshot: Codable {
     var row: Data
     var points: [JourneyPoint]
     var report: PhoneDriveReport?
+    func period() throws -> ClosedRange<Double> {
+        guard let value = try JSONSerialization.jsonObject(with: row) as? [String:Any],
+              let start = value["start"] as? Double, let end = value["end_t"] as? Double,
+              start.isFinite, end.isFinite, end >= start else { throw JourneyError.invalid }
+        return start...end
+    }
+    var tag: String? {
+        (try? JSONSerialization.jsonObject(with: row) as? [String:Any])?["tag"] as? String
+    }
 }
 struct JourneyArchive: Codable, Identifiable {
     var id = UUID()
@@ -42,16 +51,16 @@ enum JourneyStore {
         try Database.shared.checkedExecute("DELETE FROM trips WHERE id=? AND car_id=?", [id,CarStore.activeId])
         try Database.shared.checkedExecute("DELETE FROM garage_plus WHERE car_id=? AND key=?", [CarStore.activeId,"phone-drive-\(id)"])
     }
-    private static func insert(_ points: [JourneyPoint], start: Double, end: Double, reports: [PhoneDriveReport]) throws -> Int {
+    private static func insert(_ points: [JourneyPoint], start: Double, end: Double, reports: [PhoneDriveReport], includeEnd: Bool, tag: String?) throws -> Int {
         guard points.count >= 2, end > start else { throw JourneyError.invalid }
         let db = Database.shared
-        try db.checkedExecute("INSERT INTO trips(car_id,start,end_t,distance_km,max_speed) VALUES(?,?,?,?,?)",
-            [CarStore.activeId,start,end,JourneyAnalysis.distance(points),points.map(\.speed).max() ?? 0])
+        try db.checkedExecute("INSERT INTO trips(car_id,start,end_t,distance_km,max_speed,tag) VALUES(?,?,?,?,?,?)",
+            [CarStore.activeId,start,end,JourneyAnalysis.distance(points),points.map(\.speed).max() ?? 0,tag])
         let id = db.query("SELECT last_insert_rowid()") { $0.int(0) }.first!
         for p in points { try db.checkedExecute("INSERT INTO trip_points(trip_id,t,lat,lon,speed) VALUES(?,?,?,?,?)", [id,p.time,p.latitude,p.longitude,p.speed]) }
         var report = PhoneDriveReport()
         report.interrupted = false; report.confirmedMovement = true; report.edited = true; report.endReason = "edited"; report.lastObservedAt = end
-        report.events = reports.flatMap(\.events).filter { $0.time >= start && $0.time <= end }
+        report.events = reports.flatMap(\.events).filter { $0.time >= start && (includeEnd ? $0.time <= end : $0.time < end) }
         report.stops = reports.flatMap { $0.stops ?? [] }.compactMap { stop in
             var value = stop; value.start = max(start,stop.start); value.end = min(end,stop.end)
             return value.end > value.start ? value : nil
@@ -74,6 +83,8 @@ enum JourneyStore {
         case .merge(let otherID):
             guard otherID != id else { throw JourneyError.invalid }
             let other = try snapshot(otherID); originals.append(other)
+            let a = try original.period(), b = try other.period()
+            guard a.upperBound <= b.lowerBound || b.upperBound <= a.lowerBound else { throw JourneyError.overlap }
             let ordered = originals.sorted { ($0.points.first?.time ?? 0) < ($1.points.first?.time ?? 0) }
             guard let end = ordered[0].points.last?.time, let start = ordered[1].points.first?.time, start - end > 10 else { throw JourneyError.invalid }
             segments = [ordered.flatMap(\.points)]
@@ -81,7 +92,10 @@ enum JourneyStore {
         guard segments.allSatisfy({ $0.count >= 2 && $0.last!.time > $0.first!.time }) else { throw JourneyError.invalid }
         try Database.shared.transaction {
             for value in originals { try remove(value.id) }
-            let ids = try segments.map { try insert($0, start: $0.first!.time, end: $0.last!.time, reports: originals.compactMap(\.report)) }
+            let tag = originals.allSatisfy { $0.tag == original.tag } ? original.tag : nil
+            let ids = try segments.enumerated().map { index, points in
+                try insert(points, start: points.first!.time, end: points.last!.time, reports: originals.compactMap(\.report), includeEnd: index == segments.count-1, tag: tag)
+            }
             var saved = archives(); saved.append(JourneyArchive(originals: originals, resultIDs: ids))
             try GaragePlus.save(saved, key: "trip-originals")
             guard let backup = Backup.makeData(), backup.count < 18_000_000 else { throw JourneyError.tooLarge }

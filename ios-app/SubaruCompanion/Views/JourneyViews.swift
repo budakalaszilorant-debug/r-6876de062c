@@ -201,7 +201,8 @@ struct JourneyEditView: View {
     @State private var other = 0
     @State private var error: String?
     @State private var confirm = false
-    private var points: [JourneyPoint] { JourneyStore.points(trip.id) }
+    @State private var points: [JourneyPoint] = []
+    private var selectedPoints: [JourneyPoint] { points.filter { $0.time >= time(from) && $0.time <= time(to) } }
     private func time(_ fraction: Double) -> Double { let p = points; return (p.first?.time ?? 0) + fraction * ((p.last?.time ?? 0) - (p.first?.time ?? 0)) }
     var body: some View {
         NavigationStack {
@@ -226,11 +227,15 @@ struct JourneyEditView: View {
                             ForEach(TripStore.all().filter { $0.id != trip.id && JourneyStore.archive(for: $0.id) == nil }) { Text(Fmt.date($0.start)).tag($0.id) }
                         }
                     }
+                    if mode == 0, let first = selectedPoints.first, let last = selectedPoints.last {
+                        LabeledContent(tr("Vágás után", "After trimming"),value: "\(Fmt.one(JourneyAnalysis.distance(selectedPoints))) km · \(DriveReportFormat.duration(last.time-first.time))")
+                    }
                     Text(tr("Az eredeti visszaállítható. A módosított táv GPS-ből készül; üzemanyag és költség nem kerül becsléssel átmásolásra.", "The original can be restored. Edited distance comes from GPS; fuel and costs will not be guessed."))
                     Button(tr("Módosítás mentése", "Save changes")) { confirm = true }.disabled(points.count < 2 || (mode == 0 && from >= to) || (mode == 2 && other == 0))
                 }
                 if let error { Text(error).foregroundStyle(.red) }
             }.navigationTitle(tr("Út szerkesztése", "Edit trip"))
+            .onAppear { points = JourneyStore.points(trip.id) }
             .toolbar { Button(tr("Bezárás", "Close")) { dismiss() } }
             .confirmationDialog(tr("Elmented a módosított utat?", "Save the edited trip?"),isPresented: $confirm) {
                 Button(tr("Mentés", "Save")) {

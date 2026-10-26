@@ -19,24 +19,20 @@ struct TripReplayView: View {
     @State private var playing = false
     @State private var timer: Timer?
 
-    private var index: Int {
-        let target = startT + position * ((track.last?.t ?? startT) - startT)
-        var low = 0
-        var high = max(0, track.count - 1)
-        while low < high {
-            let middle = (low + high + 1) / 2
-            if track[middle].t <= target { low = middle } else { high = middle - 1 }
-        }
-        return low
-    }
-    private var current: TrackPoint { track[index] }
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var lastTick: Date?
+    @State private var points: [JourneyPoint] = []
+    @State private var chartPoints: [PlaybackSample] = []
+    private var playbackTime: Double { startT + position * max(0,(track.last?.t ?? startT)-startT) }
+    private var current: TrackPoint? { JourneyPlayback.index(at: playbackTime,points: points).flatMap { track.indices.contains($0) ? track[$0] : nil } }
+    private var playbackSpeed: Double? { JourneyPlayback.speed(at: playbackTime,points: points,stops: stops) }
     private var startT: Double { track.first?.t ?? 0 }
 
     var body: some View {
         VStack(spacing: 12) {
-            ReplayMap(track: track, marker: current.coordinate, events: events, stops: stops, simplified: simplified)
+            if let current { ReplayMap(track: track, marker: current.coordinate, events: events, stops: stops, simplified: simplified)
                 .frame(height: simplified ? 350 : 300)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous)) }
 
             Card {
                 VStack(spacing: 12) {
@@ -55,12 +51,12 @@ struct TripReplayView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                                Text(current.speed >= 0 ? Fmt.int(current.speed) : "—")
+                                Text(Fmt.int(playbackSpeed))
                                     .font(Theme.number(26))
                                     .contentTransition(.numericText())
                                 Text("km/h").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text2)
                             }
-                            Text(DriveReportFormat.duration(current.t - startT))
+                            Text(DriveReportFormat.duration(playbackTime - startT))
                                 .font(.system(size: 12))
                                 .foregroundStyle(Theme.text3)
                         }
@@ -78,17 +74,19 @@ struct TripReplayView: View {
                         if editing { stop() }
                     }
                     .accessibilityLabel(tr("Út visszajátszása", "Drive playback"))
+                    if playbackSpeed == nil { Text(tr("Ezen a pillanaton nincs megbízható sebességadat.", "No reliable speed reading at this moment.")).font(.caption).foregroundStyle(Theme.text2) }
 
                     Chart {
-                        ForEach(Array(sampled.enumerated()), id: \.offset) { _, p in
+                        ForEach(chartPoints) { sample in
+                            let p = sample.point
                             if p.speed >= 0 {
-                            AreaMark(x: .value("t", p.t - startT), y: .value("v", p.speed))
+                            AreaMark(x: .value("t", p.time - startT), y: .value("v", p.speed), series: .value("segment", sample.segment))
                                 .foregroundStyle(Theme.accent.opacity(0.18))
-                            LineMark(x: .value("t", p.t - startT), y: .value("v", p.speed))
+                            LineMark(x: .value("t", p.time - startT), y: .value("v", p.speed), series: .value("segment", sample.segment))
                                 .foregroundStyle(Theme.accent)
                             }
                         }
-                        RuleMark(x: .value("now", current.t - startT))
+                        RuleMark(x: .value("now", playbackTime - startT))
                             .foregroundStyle(Theme.text)
                             .lineStyle(StrokeStyle(lineWidth: 1))
                     }
@@ -103,13 +101,12 @@ struct TripReplayView: View {
                 }
             }
         }
+        .onAppear {
+            points = track.map { JourneyPoint(time: $0.t,latitude: $0.coordinate.latitude,longitude: $0.coordinate.longitude,speed: $0.speed) }
+            chartPoints = JourneyPlayback.chart(points)
+        }
+        .onChange(of: scenePhase) { phase in if phase != .active { stop() } }
         .onDisappear { stop() }
-    }
-
-    /// A grafikonhoz legfeljebb ~200 pont, hogy hosszú útnál is gyors maradjon.
-    private var sampled: [TrackPoint] {
-        let step = max(1, track.count / 200)
-        return stride(from: 0, to: track.count, by: step).map { track[$0] }
     }
 
     private var legend: some View {
@@ -127,17 +124,19 @@ struct TripReplayView: View {
         Haptics.tap()
         if playing { stop(); return }
         if position >= 0.999 { position = 0 }
-        playing = true
-        // Az egész út kb. 20 mp alatt játszódik le.
+        guard track.count > 1 else { return }
+        playing = true; lastTick = Date()
+        // Advance by elapsed time, not by an assumed timer delivery rate.
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-            position = min(1, position + 0.05 * rate / max(1, (track.last?.t ?? startT) - startT))
+            let now = Date(); let elapsed = max(0, now.timeIntervalSince(lastTick ?? now)); lastTick = now
+            position = min(1, position + elapsed * rate / max(1, (track.last?.t ?? startT) - startT))
             if position >= 1 { stop() }
         }
     }
 
     private func stop() {
         timer?.invalidate()
-        timer = nil
+        timer = nil; lastTick = nil
         playing = false
     }
 }

@@ -389,4 +389,61 @@ expect(JourneyStore.points(secondID).count == 101 && JourneyStore.points(origina
 let openID = db.execute("INSERT INTO trips(car_id,start) VALUES(?,?)",[CarStore.activeId,20000])
 do { try JourneyStore.edit(originalID,operation: .split(10050)); fatalError("active recording edit accepted") } catch {}
 try db.checkedExecute("DELETE FROM trips WHERE id=?",[openID])
+
+// Playback never presents a stale GPS reading as the speed inside a signal gap.
+let replayPoints = [JourneyPoint(time: 0,latitude: 47,longitude: 19,speed: 30),JourneyPoint(time: 1,latitude: 47,longitude: 19.001,speed: 32),JourneyPoint(time: 60,latitude: 47,longitude: 19.002,speed: 40)]
+expect(JourneyPlayback.speed(at: 30,points: replayPoints,stops: []) == nil,"missing GPS does not replay stale speed")
+expect(JourneyPlayback.speed(at: 0.5,points: replayPoints,stops: []) == 30,"fresh replay reading available")
+let knownStop = DriveStop(start: 10,end: 50,latitude: 47,longitude: 19.001)
+expect(JourneyPlayback.speed(at: 30,points: replayPoints,stops: [knownStop]) == 0,"confirmed stop shows zero rather than old moving speed")
+expect(JourneyPlayback.index(at: 0,points: []) == nil,"empty replay has no out-of-bounds index")
+let plot = JourneyPlayback.chart(replayPoints)
+expect(plot[0].segment == plot[1].segment && plot[1].segment != plot[2].segment,"chart breaks across GPS gaps")
+expect(JourneyPlayback.chart(Array(longRoute),budget: 20).last?.point == longRoute.last,"downsampling preserves final graph endpoint")
+
+// Split boundary events belong to one result only; trip classification survives.
+var boundaryReport = PhoneDriveReport()
+boundaryReport.events = [PhoneDriveEvent(time: 10050,latitude: 47,longitude: 19,kind: "braking",speed: 20)]
+try GaragePlus.save(boundaryReport,key: "phone-drive-\(originalID)")
+try db.checkedExecute("UPDATE trips SET tag='work' WHERE id=?",[originalID])
+try JourneyStore.edit(originalID,operation: .split(10050))
+let boundaryArchive = JourneyStore.archives().last!
+let eventsAfterSplit = boundaryArchive.resultIDs.reduce(0) { $0 + (GaragePlus.load(PhoneDriveReport.self,key: "phone-drive-\($1)")?.events.count ?? 0) }
+expect(eventsAfterSplit == 1,"split does not duplicate a braking event on the boundary")
+expect(boundaryArchive.resultIDs.allSatisfy { id in db.query("SELECT tag FROM trips WHERE id=?",[id]) { $0.string(0) }.first == "work" },"work/private classification retained on split")
+try JourneyStore.restore(boundaryArchive)
+try db.checkedExecute("UPDATE trips SET end_t=10250 WHERE id=?",[originalID])
+do { try JourneyStore.edit(originalID,operation: .merge(secondID)); fatalError("overlapping trip periods merged") } catch JourneyError.overlap {} catch { fatalError("wrong overlap failure") }
+expect(JourneyStore.points(originalID).count == 101 && JourneyStore.points(secondID).count == 101,"overlap rejection preserves both originals")
+
+// Service schedule, journal and expense update together and roll back together.
+let reviewItem = "review-service-test"
+try db.checkedExecute("INSERT INTO service_plan(car_id,item,hu,en,interval_km,critical,sort) VALUES(?,?,'Review service','Review service',10000,0,999)",[CarStore.activeId,reviewItem])
+var serviceA = JournalEntry(title: "Review service",date: Date(timeIntervalSince1970: 100),km: 1000,amount: 5000)
+let serviceB = JournalEntry(title: "Review service",date: Date(timeIntervalSince1970: 200),km: 2000,amount: 6000)
+try GarageLibrary.save(serviceA,completedItem: reviewItem,intervalKm: 12000)
+try GarageLibrary.save(serviceB,completedItem: reviewItem)
+func latestReviewKM() -> Double? { db.query("SELECT last_km FROM service_done WHERE car_id=? AND item=?",[CarStore.activeId,reviewItem]) { $0.double(0) }.first }
+expect(latestReviewKM() == 2000,"latest service anchors due mileage")
+serviceA.date = Date(timeIntervalSince1970: 300); serviceA.km = 3000
+try GarageLibrary.save(serviceA)
+expect(latestReviewKM() == 3000,"editing service date and mileage updates due schedule")
+do { try GarageLibrary.save(serviceA,intervalKm: -1); fatalError("invalid interval saved") } catch {}
+expect(db.query("SELECT interval_km FROM service_plan WHERE car_id=? AND item=?",[CarStore.activeId,reviewItem]) { $0.double(0) }.first == 12000,"invalid interval cannot partially update schedule")
+
+let protectedExpense = GarageLibrary.journal().first { $0.id == serviceA.id }!.expenseID!
+try db.checkedExecute("CREATE TRIGGER fail_review_expense BEFORE UPDATE ON expenses WHEN OLD.id=\(protectedExpense) BEGIN SELECT RAISE(ABORT,'test failure'); END")
+do { try GarageLibrary.save(serviceA,intervalKm: 18000); fatalError("forced expense failure accepted") } catch {}
+try db.checkedExecute("DROP TRIGGER fail_review_expense")
+expect(db.query("SELECT interval_km FROM service_plan WHERE car_id=? AND item=?",[CarStore.activeId,reviewItem]) { $0.double(0) }.first == 12000,"expense failure rolls back an already updated interval")
+try GarageLibrary.removeEntry(serviceA.id)
+expect(latestReviewKM() == 2000,"deleting latest service falls back to previous completion")
+try GarageLibrary.removeEntry(serviceB.id)
+expect(latestReviewKM() == nil,"deleting last completion removes stale due reference")
+let legacyService = JournalEntry(title: "Review service",date: Date(timeIntervalSince1970: 400),km: 4000)
+try GaragePlus.save([legacyService],key: "service-journal")
+try GaragePlus.save(false,key: "journal-service-links-v1")
+try db.checkedExecute("INSERT INTO service_done(car_id,item,last_km,last_date) VALUES(?,?,4000,400)",[CarStore.activeId,reviewItem])
+try GarageLibrary.linkLegacyServices()
+expect(GarageLibrary.journal().first?.serviceItemID == reviewItem,"previous app journal association migrates without losing history")
 print("Garage integration checks passed: \(checks)")

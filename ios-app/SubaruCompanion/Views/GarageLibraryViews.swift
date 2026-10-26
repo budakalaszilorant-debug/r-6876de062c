@@ -126,9 +126,9 @@ struct ServiceJournalView: View {
             Section { NavigationLink(tr("Szervizterv és esedékességek", "Schedule and due dates")) { ServiceView() } }
         }.navigationTitle(tr("Szervizkönyv", "Service book")).searchable(text: $search)
         .toolbar { Button { editing = JournalEntry() } label: { Image(systemName: "plus") } }
-        .onAppear { do { try GarageLibrary.importLegacy(); entries = GarageLibrary.journal() } catch { self.error = error.localizedDescription } }
+        .onAppear { do { try GarageLibrary.importLegacy(); try GarageLibrary.linkLegacyServices(); entries = GarageLibrary.journal() } catch { self.error = error.localizedDescription } }
         .sheet(item: $editing,onDismiss: { entries = GarageLibrary.journal() }) { JournalEditor(entry: $0) }
-        .confirmationDialog(tr("A szerviz és a hozzá kapcsolt költség törlése?", "Delete this service and its linked expense?"),isPresented: Binding(get: { deleting != nil },set: { if !$0 { deleting = nil } })) {
+        .confirmationDialog(tr("Törlöd a szervizt és a kapcsolt költséget? Az esedékesség az előző szervizhez igazodik.", "Delete this service and its linked expense? Due dates will use the preceding service."),isPresented: Binding(get: { deleting != nil },set: { if !$0 { deleting = nil } })) {
             Button(tr("Törlés", "Delete"),role: .destructive) { do { if let deleting { try GarageLibrary.removeEntry(deleting.id) }; entries = GarageLibrary.journal() } catch { self.error = error.localizedDescription } }
         }
         .alert(tr("Nem sikerült", "Could not complete"),isPresented: Binding(get: { error != nil },set: { if !$0 { error = nil } })) { Button("OK") {} } message: { Text(error ?? "") }

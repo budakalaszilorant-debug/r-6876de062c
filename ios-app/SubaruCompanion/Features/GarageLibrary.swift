@@ -20,6 +20,7 @@ struct JournalEntry: Codable, Identifiable {
     var amount = 0.0
     var documents: [UUID] = []
     var expenseID: Int?
+    var serviceItemID: String?
 }
 
 enum GarageLibrary {
@@ -48,19 +49,27 @@ enum GarageLibrary {
             try GaragePlus.save(entries, key: "service-journal")
         }
     }
-    static func save(_ entry: JournalEntry, completedItem: String? = nil) throws {
+    static func save(_ entry: JournalEntry, completedItem: String? = nil, intervalKm: Double? = nil) throws {
+        try linkLegacyServices()
         guard !entry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              entry.title.count <= 200, entry.amount.isFinite, entry.amount >= 0,
+              entry.title.count <= 200, entry.parts.count <= 10000, entry.workshop.count <= 200,
+              entry.date.timeIntervalSince1970.isFinite, entry.amount.isFinite, entry.amount >= 0,
               entry.km == nil || (entry.km!.isFinite && entry.km! >= 0),
               Set(entry.documents).isSubset(of: Set(documents().map(\.id))) else { throw JourneyError.invalid }
         try Database.shared.transaction {
-            if let completedItem {
-                try Database.shared.checkedExecute("INSERT OR REPLACE INTO service_done(car_id,item,last_km,last_date) VALUES(?,?,?,?)", [CarStore.activeId,completedItem,entry.km,entry.date.timeIntervalSince1970])
-            }
             var values = journal()
             var saved = entry
             // The stored association is authoritative, never an incoming expense ID.
-            saved.expenseID = values.first(where: { $0.id == entry.id })?.expenseID
+            let previous = values.first(where: { $0.id == entry.id })
+            saved.expenseID = previous?.expenseID
+            saved.serviceItemID = previous?.serviceItemID ?? completedItem
+            if let item = saved.serviceItemID {
+                guard entry.km != nil, Database.shared.query("SELECT COUNT(*) FROM service_plan WHERE car_id=? AND item=?",[CarStore.activeId,item],map: { $0.int(0) }).first == 1 else { throw JourneyError.invalid }
+                if let intervalKm {
+                    guard intervalKm.isFinite, (intervalKm == 0 || intervalKm >= 1000), intervalKm <= 500000 else { throw JourneyError.invalid }
+                    try Database.shared.checkedExecute("UPDATE service_plan SET interval_km=? WHERE car_id=? AND item=?",[intervalKm,CarStore.activeId,item])
+                }
+            }
             let db = Database.shared
             if let id = saved.expenseID, db.query("SELECT COUNT(*) FROM expenses WHERE id=? AND car_id=?",[id,CarStore.activeId],map: { $0.int(0) }).first != 1 { saved.expenseID = nil }
             if let id = saved.expenseID {
@@ -73,26 +82,53 @@ enum GarageLibrary {
             }
             values.removeAll { $0.id == entry.id }; values.append(saved)
             try GaragePlus.save(values, key: "service-journal")
+            if let item = saved.serviceItemID { try refreshService(item, entries: values) }
+        }
+    }
+    private static func refreshService(_ item: String, entries: [JournalEntry]) throws {
+        let latest = entries.filter { $0.serviceItemID == item && $0.km != nil }.max { $0.date < $1.date }
+        if let latest {
+            try Database.shared.checkedExecute("INSERT OR REPLACE INTO service_done(car_id,item,last_km,last_date) VALUES(?,?,?,?)",[CarStore.activeId,item,latest.km,latest.date.timeIntervalSince1970])
+        } else {
+            try Database.shared.checkedExecute("DELETE FROM service_done WHERE car_id=? AND item=?",[CarStore.activeId,item])
+        }
+    }
+    /// Recover exact associations from the previous app without guessing from titles alone.
+    static func linkLegacyServices() throws {
+        guard GaragePlus.load(Bool.self,key: "journal-service-links-v1") != true else { return }
+        try Database.shared.transaction {
+            var entries = journal()
+            let rows = Database.shared.query("SELECT p.item,p.hu,p.en,d.last_km,d.last_date FROM service_done d JOIN service_plan p ON p.car_id=d.car_id AND p.item=d.item WHERE d.car_id=?",[CarStore.activeId]) { ($0.string(0),$0.string(1),$0.string(2),$0.double(3),$0.double(4)) }
+            for (item,hu,en,km,date) in rows {
+                let matches = entries.indices.filter { entries[$0].serviceItemID == nil && [hu,en].contains(entries[$0].title) && entries[$0].km == km && entries[$0].date.timeIntervalSince1970 == date }
+                if matches.count == 1 { entries[matches[0]].serviceItemID = item }
+            }
+            try GaragePlus.save(entries,key: "service-journal")
+            try GaragePlus.save(true,key: "journal-service-links-v1")
         }
     }
     static func importLegacy() throws {
         guard GaragePlus.load(Bool.self,key: "journal-legacy-imported") != true else { return }
         try Database.shared.transaction {
             var values = journal()
-            let rows = Database.shared.query("SELECT p.hu,p.en,d.last_km,d.last_date FROM service_done d JOIN service_plan p ON p.car_id=d.car_id AND p.item=d.item WHERE d.car_id=?",[CarStore.activeId]) { (tr($0.string(0),$0.string(1)),$0.double(2),$0.double(3)) }
-            for (title,km,time) in rows where !values.contains(where: { $0.title == title && $0.date.timeIntervalSince1970 == time }) {
-                values.append(JournalEntry(title: title,date: Date(timeIntervalSince1970: time),km: km,parts: tr("Korábbi szervizbejegyzés", "Earlier service record")))
+            let rows = Database.shared.query("SELECT p.hu,p.en,d.last_km,d.last_date,p.item FROM service_done d JOIN service_plan p ON p.car_id=d.car_id AND p.item=d.item WHERE d.car_id=?",[CarStore.activeId]) { (tr($0.string(0),$0.string(1)),$0.double(2),$0.double(3),$0.string(4)) }
+            for (title,km,time,item) in rows where !values.contains(where: { $0.title == title && $0.date.timeIntervalSince1970 == time }) {
+                values.append(JournalEntry(title: title,date: Date(timeIntervalSince1970: time),km: km,parts: tr("Korábbi szervizbejegyzés", "Earlier service record"),serviceItemID: item))
             }
             try GaragePlus.save(values,key: "service-journal")
             try GaragePlus.save(true,key: "journal-legacy-imported")
         }
     }
     static func removeEntry(_ id: UUID) throws {
+        try linkLegacyServices()
         try Database.shared.transaction {
+            let item = journal().first(where: { $0.id == id })?.serviceItemID
             if let expense = journal().first(where: { $0.id == id })?.expenseID {
                 try Database.shared.checkedExecute("DELETE FROM expenses WHERE id=? AND car_id=?", [expense,CarStore.activeId])
             }
-            try GaragePlus.save(journal().filter { $0.id != id }, key: "service-journal")
+            let remaining = journal().filter { $0.id != id }
+            try GaragePlus.save(remaining, key: "service-journal")
+            if let item { try refreshService(item,entries: remaining) }
         }
     }
 }

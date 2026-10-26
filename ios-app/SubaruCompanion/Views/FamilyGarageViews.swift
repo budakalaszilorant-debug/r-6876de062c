@@ -76,7 +76,9 @@ struct FamilyRecordsView: View {
     @State private var error: String?
     @State private var busy = false
     @State private var deleting: FamilyRecord?
-    private var writable: Bool { car.writes.contains(content.section) }
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var verifiedWrite = false
+    private var writable: Bool { verifiedWrite }
     var body: some View {
         List {
             ForEach(content.records.sorted { $0.date > $1.date }) { record in
@@ -100,7 +102,9 @@ struct FamilyRecordsView: View {
             if busy { ProgressView() }
             if let error { Text(error).foregroundStyle(.red); Button(tr("Frissítés", "Reload")) { Task { await reload() } } }
         }.navigationTitle(FamilySection(rawValue: content.section)?.title ?? car.name).disabled(busy)
+        .task { await reload() }
         .refreshable { await reload() }
+        .onChange(of: scenePhase) { phase in if phase == .active { Task { await reload() } } }
         .sheet(item: $editing) { value in FamilyRecordEditor(record: value,section: content.section) { value in
             var records = content.records.filter { $0.id != value.id }; records.append(value); try await save(records)
         } }
@@ -124,14 +128,28 @@ struct FamilyRecordsView: View {
         }
     }
     @MainActor private func save(_ records: [FamilyRecord]) async throws {
-        guard !busy else { throw JourneyError.active }; busy = true; defer { busy = false }
+        guard !busy, verifiedWrite else { throw FamilyGarageError.permission }; busy = true; defer { busy = false }
         let data = try JSONSerialization.jsonObject(with: JSONEncoder().encode(records))
         let response = try await CloudSync.shared.family("write",garage: car.id,data: ["section":content.section,"revision":content.revision,"records":data])
         struct Revision: Decodable { var revision: Int }
         content.revision = try JSONDecoder().decode(Revision.self,from: response).revision; content.records = records; error = nil
     }
     @MainActor private func reload() async {
-        do { let values = try JSONDecoder().decode([FamilyContent].self,from: await CloudSync.shared.family("read",garage: car.id)); guard let value = values.first(where: { $0.section == content.section }) else { content.records = []; throw JourneyError.missing }; content = value; error = nil } catch { self.error = familyError(error) }
+        guard !busy else { return }
+        busy = true; verifiedWrite = false
+        defer { busy = false }
+        do {
+            let garages = try JSONDecoder().decode([FamilyCar].self,from: await CloudSync.shared.family("list"))
+            guard let current = garages.first(where: { $0.id == car.id }), current.reads.contains(content.section) else {
+                content.records = []; throw FamilyGarageError.permission
+            }
+            let values = try JSONDecoder().decode([FamilyContent].self,from: await CloudSync.shared.family("read",garage: car.id))
+            guard let value = values.first(where: { $0.section == content.section }) else { content.records = []; throw FamilyGarageError.permission }
+            content = value; verifiedWrite = current.writes.contains(content.section); error = nil
+        } catch {
+            if let failure = error as? FamilyGarageError, failure == .permission { content.records = []; editing = nil; export = nil }
+            self.error = familyError(error)
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 import Foundation
 
-enum FamilyGarageError: LocalizedError {
+enum FamilyGarageError: LocalizedError, Equatable {
     case setup, permission, changed, unavailable
     var errorDescription: String? {
         switch self {

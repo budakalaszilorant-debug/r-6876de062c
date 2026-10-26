@@ -76,9 +76,10 @@ enum PlacesStore {
 }
 
 enum JourneyError: LocalizedError {
-    case invalid, active, alreadyEdited, missing, tooLarge
+    case invalid, active, alreadyEdited, missing, tooLarge, overlap
     var errorDescription: String? {
         switch self {
+        case .overlap: return tr("A két út időben átfedi egymást, ezért nem fűzhetők össze.", "These trips overlap in time and cannot be merged.")
         case .invalid: return tr("Ehhez a művelethez érvényes időtartomány és legalább két GPS-pont szükséges.", "A valid time range and at least two GPS points are required.")
         case .active: return tr("Előbb fejezd be a folyamatban lévő rögzítést.", "Finish the active recording first.")
         case .alreadyEdited: return tr("Előbb állítsd vissza ennek a szerkesztésnek az eredetijét.", "Restore the original of this edit first.")
