@@ -446,4 +446,14 @@ try GaragePlus.save(false,key: "journal-service-links-v1")
 try db.checkedExecute("INSERT INTO service_done(car_id,item,last_km,last_date) VALUES(?,?,4000,400)",[CarStore.activeId,reviewItem])
 try GarageLibrary.linkLegacyServices()
 expect(GarageLibrary.journal().first?.serviceItemID == reviewItem,"previous app journal association migrates without losing history")
+
+let paidService = JournalEntry(title: "Paid service",amount: 7000)
+try GarageLibrary.save(paidService)
+let paidExpense = GarageLibrary.journal().first { $0.id == paidService.id }!.expenseID!
+try GarageLibrary.removeExpense(paidExpense)
+var costCleared = GarageLibrary.journal().first { $0.id == paidService.id }!
+expect(costCleared.amount == 0 && costCleared.expenseID == nil,"expense deletion clears linked service amount without deleting work history")
+costCleared.parts = "Updated part note"
+try GarageLibrary.save(costCleared)
+expect(db.query("SELECT COUNT(*) FROM expenses WHERE id=?",[paidExpense]) { $0.int(0) }.first == 0 && GarageLibrary.journal().first { $0.id == paidService.id }?.expenseID == nil,"editing notes cannot resurrect a deleted cost")
 print("Garage integration checks passed: \(checks)")

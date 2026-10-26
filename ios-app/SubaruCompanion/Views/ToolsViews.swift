@@ -290,6 +290,8 @@ struct CostsView: View {
     @State private var summary = CostSummary()
     @State private var compare: [(name: String, perKm: Double?)] = []
     @State private var adding = false
+    @State private var deleteError: String?
+    @State private var deletingExpense: Expense?
 
     private var since: Date? {
         switch period {
@@ -361,7 +363,7 @@ struct CostsView: View {
                             }
                             .padding(.horizontal, 14).frame(minHeight: 54)
                             .contextMenu {
-                                Button(role: .destructive) { ExpenseStore.delete(e.id); reload() } label: {
+                                Button(role: .destructive) { deletingExpense = e } label: {
                                     Label(tr("Törlés", "Delete"), systemImage: "trash")
                                 }
                             }
@@ -371,6 +373,13 @@ struct CostsView: View {
                 }
             }
         }
+        .confirmationDialog(tr("Törlöd a költséget? A kapcsolt szerviz megmarad, az összegét is töröljük.", "Delete this expense? A linked service is kept, with its cost cleared."),isPresented: Binding(get: { deletingExpense != nil },set: { if !$0 { deletingExpense = nil } })) {
+            Button(tr("Törlés", "Delete"),role: .destructive) {
+                do { if let deletingExpense { try ExpenseStore.delete(deletingExpense.id) }; reload() }
+                catch { deleteError = tr("Nem sikerült törölni a költséget. Az adatok megmaradtak.", "Could not delete the expense. Your records are preserved.") }
+            }
+        }
+        .alert(tr("Nem sikerült", "Could not complete"),isPresented: Binding(get: { deleteError != nil },set: { if !$0 { deleteError = nil } })) { Button("OK") {} } message: { Text(deleteError ?? "") }
         .onAppear(perform: reload)
         .sheet(isPresented: $adding) { AddExpenseSheet { reload() }.presentationDetents([.medium, .large]) }
     }

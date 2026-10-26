@@ -147,6 +147,7 @@ struct JournalEditor: View {
                 TextField(tr("Elvégzett munka", "Work performed"),text: $entry.title)
                 DatePicker(tr("Dátum", "Date"),selection: $entry.date,displayedComponents: .date)
                 TextField(tr("Kilométeróra", "Odometer"),value: $entry.km,format: .number).keyboardType(.decimalPad)
+                if entry.serviceItemID != nil { Text(tr("A dátum és a kilométer módosítása a szervizesedékességet is frissíti.", "Changing the date or mileage also updates the service schedule.")).font(.footnote).foregroundStyle(.secondary) }
                 TextField(tr("Műhely / szerelő", "Workshop / mechanic"),text: $entry.workshop)
                 Section(tr("Alkatrészek és megjegyzések", "Parts and notes")) { TextEditor(text: $entry.parts).frame(minHeight: 100) }
                 Section { TextField(tr("Összeg (Ft)", "Amount (Ft)"),value: $entry.amount,format: .number).keyboardType(.decimalPad) } footer: { Text(tr("A kiadásokba egyszer kerül be, és szerkesztéskor együtt frissül.", "Added once to expenses and updated together when edited.")) }

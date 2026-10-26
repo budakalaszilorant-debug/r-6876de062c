@@ -131,4 +131,16 @@ enum GarageLibrary {
             if let item { try refreshService(item,entries: remaining) }
         }
     }
+    static func removeExpense(_ id: Int) throws {
+        let db = Database.shared
+        guard db.query("SELECT COUNT(*) FROM expenses WHERE id=? AND car_id=?",[id,CarStore.activeId],map: { $0.int(0) }).first == 1 else { throw JourneyError.missing }
+        try db.transaction {
+            var entries = journal()
+            for i in entries.indices where entries[i].expenseID == id {
+                entries[i].expenseID = nil; entries[i].amount = 0
+            }
+            try GaragePlus.save(entries,key: "service-journal")
+            try db.checkedExecute("DELETE FROM expenses WHERE id=? AND car_id=?",[id,CarStore.activeId])
+        }
+    }
 }

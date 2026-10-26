@@ -66,8 +66,8 @@ enum ExpenseStore {
                    [car, date.timeIntervalSince1970, category.rawValue, amount, note])
     }
 
-    static func delete(_ id: Int) {
-        db.execute("DELETE FROM expenses WHERE id = ?", [id])
+    static func delete(_ id: Int) throws {
+        try GarageLibrary.removeExpense(id)
     }
 
     /// Összesítés `since` óta (nil = teljes idő). A km az útnaplóból jön.
