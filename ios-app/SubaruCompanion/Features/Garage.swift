@@ -165,14 +165,16 @@ enum CarStore {
     }
 
     /// Az autó és minden adata törlődik.
-    static func delete(_ id: Int) {
+    static func delete(_ id: Int) throws {
         guard all().count > 1, id != activeId else { return }
+        try db.transaction {
+            try db.checkedExecute("DELETE FROM trip_points WHERE trip_id IN (SELECT id FROM trips WHERE car_id = ?)", [id])
+            for t in Database.carTables { try db.checkedExecute("DELETE FROM \(t) WHERE car_id = ?", [id]) }
+            try db.checkedExecute("DELETE FROM cars WHERE id = ?", [id])
+        }
         for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("car-\(id)-") {
             UserDefaults.standard.removeObject(forKey: key)
         }
-        db.execute("DELETE FROM trip_points WHERE trip_id IN (SELECT id FROM trips WHERE car_id = ?)", [id])
-        for t in Database.carTables { db.execute("DELETE FROM \(t) WHERE car_id = ?", [id]) }
-        db.execute("DELETE FROM cars WHERE id = ?", [id])
     }
 
     /// Mentés visszaállítása után a régi (autó nélküli) sorok az aktív autóhoz kerülnek.

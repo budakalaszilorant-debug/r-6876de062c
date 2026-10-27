@@ -37,7 +37,10 @@ enum Backup {
 
     static func makeData() -> Data? {
         var tablesOut: [String: Any] = [:]
-        for t in tables { tablesOut[t] = Database.shared.dump(table: t) }
+        for t in tables {
+            guard let rows = try? Database.shared.checkedDump(table: t) else { return nil }
+            tablesOut[t] = rows
+        }
 
         var settings: [String: Any] = [:]
         for key in AppSettings.backupKeys {

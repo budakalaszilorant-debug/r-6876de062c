@@ -195,9 +195,7 @@ enum RangeEstimator {
     static func averageL100() -> Double {
         if let real = FuelStore.stats(FuelStore.all()).avgL100, real > 3 { return real }
         let recent = TripStore.all().prefix(15)
-        let km = recent.reduce(0) { $0 + $1.distanceKm }
-        let fuel = recent.compactMap(\.fuelL).reduce(0, +)
-        if km > 20, fuel > 0 { return fuel / km * 100 }
+        if let measured = FuelStore.measuredAverage(recent.map { (km: $0.distanceKm, liters: $0.fuelL) }) { return measured }
         return fallbackL100
     }
 

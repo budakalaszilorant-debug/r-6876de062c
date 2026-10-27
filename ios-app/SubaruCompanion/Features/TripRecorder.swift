@@ -91,14 +91,8 @@ enum TripStore {
         }
     }
 
-    static func delete(_ id: Int) {
-        db.execute("DELETE FROM garage_plus WHERE car_id=? AND key=?", [CarStore.activeId, "phone-drive-\(id)"])
-        if var samples = GaragePlus.load([DrivingSample].self, key: "baseline") {
-            samples.removeAll { $0.id == id }
-            try? GaragePlus.save(samples, key: "baseline")
-        }
-        db.execute("DELETE FROM trip_points WHERE trip_id = ?", [id])
-        db.execute("DELETE FROM trips WHERE id = ?", [id])
+    static func delete(_ id: Int) throws {
+        try JourneyStore.deleteTrip(id)
     }
 
     /// Félbemaradt utak lezárása (pl. az app leállt út közben).
@@ -220,8 +214,12 @@ final class TripRecorder {
         location.stopTracking()
 
         if trip.distanceKm < 0.2 {
-            TripStore.delete(trip.id)  // csak járatás volt, nem út
-            return (spot, nil)
+            do {
+                try TripStore.delete(trip.id)  // csak járatás volt, nem út
+                return (spot, nil)
+            } catch {
+                // Keep and close the saved trip if removing it failed.
+            }
         }
         trip.end = Date()
         trip.cost = trip.fuelL.map { $0 * AppSettings.shared.lastFuelPrice }

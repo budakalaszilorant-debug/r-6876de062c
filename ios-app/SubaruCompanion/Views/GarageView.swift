@@ -7,6 +7,7 @@ struct GarageView: View {
     @State private var editing: CarProfile?
     @State private var adding = false
     @State private var deleting: CarProfile?
+    @State private var deletionFailed = false
 
     var body: some View {
         List {
@@ -82,7 +83,8 @@ struct GarageView: View {
                 if car.id == settings.activeCarId, let other = cars.first(where: { $0.id != car.id }) {
                     monitor.switchCar(to: other.id, announce: false)
                 }
-                CarStore.delete(car.id)
+                do { try CarStore.delete(car.id) }
+                catch { deleting = nil; deletionFailed = true; reload(); return }
                 NotificationManager.shared.cancel(ids: [CarStore.key("parkTimer-warn", car: car.id),
                                                        CarStore.key("parkTimer-end", car: car.id)])
                 Reminders.reschedule()
@@ -92,6 +94,11 @@ struct GarageView: View {
             Button(tr("Mégse", "Cancel"), role: .cancel) { deleting = nil }
         } message: {
             Text(tr("Az autó összes útja, tankolása és szervizadata is törlődik. Előtte készíts mentést.", "All trips, fill-ups and service records for this car will be deleted. Make a backup first."))
+        }
+        .alert(tr("Nem sikerült törölni", "Could not delete"), isPresented: $deletionFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(tr("Az autó adatai megmaradtak. Próbáld újra később.", "The car's data has been preserved. Try again later."))
         }
     }
 

@@ -45,7 +45,7 @@ final class Database {
 
     deinit { sqlite3_close(db) }
 
-    enum StorageError: Error { case invalidStatement, failedWrite }
+    enum StorageError: Error { case invalidStatement, failedWrite, failedRead }
 
     func checkedExecute(_ sql: String, _ args: [Any?] = []) throws {
         guard let stmt = prepare(sql, args) else { throw StorageError.invalidStatement }
@@ -132,12 +132,17 @@ final class Database {
 
     /// Egy tábla minden sora oszlopnév → érték párokkal.
     func dump(table: String) -> [[String: Any]] {
+        (try? checkedDump(table: table)) ?? []
+    }
+
+    func checkedDump(table: String) throws -> [[String: Any]] {
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT * FROM \(table)", -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        guard sqlite3_prepare_v2(db, "SELECT * FROM \(table)", -1, &stmt, nil) == SQLITE_OK, let stmt else { throw StorageError.failedRead }
         defer { sqlite3_finalize(stmt) }
         var rows: [[String: Any]] = []
         let n = sqlite3_column_count(stmt)
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        var result = sqlite3_step(stmt)
+        while result == SQLITE_ROW {
             var row: [String: Any] = [:]
             for i in 0..<n {
                 guard let cname = sqlite3_column_name(stmt, i) else { continue }
@@ -151,7 +156,9 @@ final class Database {
                 }
             }
             rows.append(row)
+            result = sqlite3_step(stmt)
         }
+        guard result == SQLITE_DONE else { throw StorageError.failedRead }
         return rows
     }
 

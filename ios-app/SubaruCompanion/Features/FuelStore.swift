@@ -46,13 +46,24 @@ enum FuelStore {
     }
 
     /// Teli tank módszer: két teli töltés között elhasznált liter = a közbenső + záró töltések összege.
-    static func stats(_ fills: [FuelFill]) -> FuelStats {
+    static func measuredAverage(_ readings: [(km: Double, liters: Double?)]) -> Double? {
+        let valid = readings.filter { $0.km.isFinite && $0.km > 0 && $0.liters.map { $0.isFinite && $0 >= 0 } == true }
+        let km = valid.reduce(0) { $0 + $1.km }
+        let liters = valid.reduce(0) { $0 + ($1.liters ?? 0) }
+        return km > 20 && liters > 0 ? liters / km * 100 : nil
+    }
+
+    static func stats(_ fills: [FuelFill], now: Date = Date()) -> FuelStats {
         var s = FuelStats()
-        let asc = fills.sorted { $0.odometer < $1.odometer }
+        let asc = fills.sorted {
+            if $0.odometer != $1.odometer { return $0.odometer < $1.odometer }
+            if $0.date != $1.date { return $0.date < $1.date }
+            return $0.id < $1.id
+        }
         s.totalCost = asc.reduce(0) { $0 + $1.cost }
         s.totalLiters = asc.reduce(0) { $0 + $1.liters }
-        let monthStart = Calendar.current.dateInterval(of: .month, for: Date())?.start ?? Date()
-        s.monthCost = asc.filter { $0.date >= monthStart }.reduce(0) { $0 + $1.cost }
+        let month = Calendar.current.dateInterval(of: .month, for: now)
+        s.monthCost = asc.filter { $0.date >= (month?.start ?? now) && $0.date < (month?.end ?? now) }.reduce(0) { $0 + $1.cost }
 
         var lastFullOdo: Double?
         var litersSince = 0.0, costSince = 0.0

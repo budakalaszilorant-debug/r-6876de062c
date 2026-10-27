@@ -116,7 +116,7 @@ expect(CarStore.all().count == 1 && CarStore.all()[0].name == "Old car", "legacy
 expect(db.query("SELECT COUNT(*) FROM service_done") { $0.int(0) }.first == 1, "legacy JSON services")
 expect(db.query("SELECT COUNT(*) FROM reminder_dates") { $0.int(0) }.first == 1, "legacy JSON reminders")
 expect(DTC.history().count == 1, "legacy JSON fault history")
-CarStore.delete(CarStore.activeId)
+try CarStore.delete(CarStore.activeId)
 expect(CarStore.all().count == 1, "last or active car cannot be deleted")
 // Cloud state regression: new phones, concurrent edits, offline retry and remote rollback.
 expect(CloudDecision.decide(linked: false, base: 0, baseHash: nil, localHash: "empty", remoteRevision: 5, remoteHash: "data") == .link, "new phone must not upload before link consent")
@@ -512,4 +512,45 @@ expect(Backup.lastBackup == nil, "other account is still due for its first backu
 try AccountGarage.activate(owner: "backup-owner-a", verifiedEmail: nil)
 expect(Backup.lastBackup == savedBackupDate, "returning account retains its own backup date")
 try AccountGarage.activate(owner: ownerBeforeBackupTest, verifiedEmail: AccountGarage.personalEmail)
+// Fail-closed export: a failed read must never become an empty cloud table.
+try db.checkedExecute("ALTER TABLE parking RENAME TO parking_unavailable")
+expect(Backup.makeData() == nil, "backup refuses unreadable tables rather than exporting data loss")
+try db.checkedExecute("ALTER TABLE parking_unavailable RENAME TO parking")
+expect(Backup.makeData() != nil, "backup works again when storage is readable")
+
+let protectedCar = CarStore.create(from: .petrol, name: "Deletion rollback")
+let protectedTrip = db.execute("INSERT INTO trips(car_id,start,end_t) VALUES(?,1,2)", [protectedCar])
+try db.checkedExecute("INSERT INTO trip_points(trip_id,t,lat,lon,speed) VALUES(?,1,47,19,0)", [protectedTrip])
+defaults.set(777, forKey: CarStore.key("fuelPrice", car: protectedCar))
+try db.checkedExecute("CREATE TRIGGER fail_car_delete BEFORE DELETE ON cars WHEN OLD.id=\(protectedCar) BEGIN SELECT RAISE(ABORT,'test'); END")
+do { try CarStore.delete(protectedCar); fatalError("failed car delete reported success") } catch {}
+expect(CarStore.get(protectedCar) != nil && db.query("SELECT COUNT(*) FROM trip_points WHERE trip_id=?",[protectedTrip]) { $0.int(0) }.first == 1, "late car delete failure restores routes and car")
+expect(defaults.integer(forKey: CarStore.key("fuelPrice", car: protectedCar)) == 777, "failed deletion preserves preferences")
+try db.checkedExecute("DROP TRIGGER fail_car_delete")
+do { try JourneyStore.deleteTrip(protectedTrip); fatalError("other car trip deleted") } catch {}
+expect(db.query("SELECT COUNT(*) FROM trips WHERE id=?",[protectedTrip]) { $0.int(0) }.first == 1, "trip delete cannot cross car ownership")
+try CarStore.delete(protectedCar)
+expect(CarStore.get(protectedCar) == nil && defaults.object(forKey: CarStore.key("fuelPrice", car: protectedCar)) == nil, "successful deletion removes preferences after commit")
+
+let rollbackTrip = try makeEditTrip(50000)
+let baselineSample = DrivingSample(id: rollbackTrip,date: Date(),km: 5,speed: 50,idleFraction: 0,consumption: 7,startTemp: 20,warmSeconds: 100,coverage: 1,source: "pid")
+try GaragePlus.save([baselineSample],key: "baseline")
+try db.checkedExecute("CREATE TRIGGER fail_trip_delete BEFORE DELETE ON trips WHEN OLD.id=\(rollbackTrip) BEGIN SELECT RAISE(ABORT,'test'); END")
+do { try JourneyStore.deleteTrip(rollbackTrip); fatalError("failed trip delete reported success") } catch {}
+expect(JourneyStore.points(rollbackTrip).count == 101,"failed trip delete preserves all GPS points")
+expect(GaragePlus.load([DrivingSample].self,key: "baseline")?.first?.id == rollbackTrip,"failed trip delete preserves baseline")
+try db.checkedExecute("DROP TRIGGER fail_trip_delete")
+try JourneyStore.edit(rollbackTrip,operation: .split(50050))
+expect(GaragePlus.load([DrivingSample].self,key: "baseline")?.isEmpty == true,"edited trip no longer contributes stale baseline")
+try JourneyStore.restore(JourneyStore.archives().last!)
+expect(GaragePlus.load([DrivingSample].self,key: "baseline")?.first?.id == rollbackTrip,"restoring original restores its measured baseline")
+try JourneyStore.deleteTrip(rollbackTrip)
+expect(JourneyStore.points(rollbackTrip).isEmpty && GaragePlus.load([DrivingSample].self,key: "baseline")?.isEmpty == true,"trip and baseline deletion commit together")
+expect(FuelStore.measuredAverage([(km: 100,liters: 8),(km: 300,liters: nil)]) == 8,"GPS-only trips cannot dilute measured consumption or inflate range")
+expect(FuelStore.measuredAverage([(km: 100,liters: nil)]) == nil,"missing fuel data does not fabricate consumption")
+expect(FuelStore.measuredAverage([(km: 10,liters: 1)]) == nil,"short measurement still requires fallback")
+let month = Calendar.current.dateInterval(of: .month,for: Date())!
+let monthlyFills = [FuelFill(id: 1,date: month.start,liters: 10,cost: 6000,odometer: 100,full: true),
+                    FuelFill(id: 2,date: month.end,liters: 20,cost: 12000,odometer: 200,full: true)]
+expect(FuelStore.stats(monthlyFills,now: month.start).monthCost == 6000,"next month's fill is not counted in this month")
 print("Garage integration checks passed: \(checks)")

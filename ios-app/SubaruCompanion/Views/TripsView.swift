@@ -130,6 +130,7 @@ struct TripDetailView: View {
     @State private var track: [TrackPoint] = []
     @State private var tag = ""
     @State private var confirmDelete = false
+    @State private var deletionFailed = false
     @State private var editing = false
     @State private var sharing = false
     @State private var fullscreen = false
@@ -208,10 +209,16 @@ struct TripDetailView: View {
         }
         .confirmationDialog(tr("Törlöd ezt az utat?", "Delete this trip?"), isPresented: $confirmDelete, titleVisibility: .visible) {
             Button(tr("Törlés", "Delete"), role: .destructive) {
-                TripStore.delete(trip.id)
+                do { try TripStore.delete(trip.id) }
+                catch { deletionFailed = true; return }
                 onDelete()
                 dismiss()
             }
+        }
+        .alert(tr("Nem sikerült törölni", "Could not delete"), isPresented: $deletionFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(tr("Az út adatai megmaradtak. Próbáld újra később.", "The drive's data has been preserved. Try again later."))
         }
     }
 }

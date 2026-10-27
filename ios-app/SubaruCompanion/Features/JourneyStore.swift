@@ -5,6 +5,7 @@ struct JourneySnapshot: Codable {
     var row: Data
     var points: [JourneyPoint]
     var report: PhoneDriveReport?
+    var baseline: DrivingSample?
     func period() throws -> ClosedRange<Double> {
         guard let value = try JSONSerialization.jsonObject(with: row) as? [String:Any],
               let start = value["start"] as? Double, let end = value["end_t"] as? Double,
@@ -38,11 +39,15 @@ enum JourneyStore {
     static func archive(for id: Int) -> JourneyArchive? { archives().first { $0.resultIDs.contains(id) } }
 
     private static func snapshot(_ id: Int) throws -> JourneySnapshot {
-        guard let row = Database.shared.dump(table: "trips").first(where: { ($0["id"] as? Int) == id && ($0["car_id"] as? Int) == CarStore.activeId }),
+        guard let row = try Database.shared.checkedDump(table: "trips").first(where: { ($0["id"] as? Int) == id && ($0["car_id"] as? Int) == CarStore.activeId }),
               !(row["end_t"] is NSNull), row["end_t"] != nil else { throw JourneyError.missing }
         guard archive(for: id) == nil else { throw JourneyError.alreadyEdited }
         return JourneySnapshot(id: id, row: try JSONSerialization.data(withJSONObject: row), points: points(id),
-            report: GaragePlus.load(PhoneDriveReport.self, key: "phone-drive-\(id)"))
+            report: GaragePlus.load(PhoneDriveReport.self, key: "phone-drive-\(id)"),
+            baseline: GaragePlus.load([DrivingSample].self, key: "baseline")?.first { $0.id == id })
+    }
+    static func deleteTrip(_ id: Int) throws {
+        try Database.shared.transaction { try remove(id) }
     }
     private static func remove(_ id: Int) throws {
         let owner = Database.shared.query("SELECT car_id FROM trips WHERE id=?",[id]) { $0.int(0) }.first
@@ -50,6 +55,10 @@ enum JourneyStore {
         try Database.shared.checkedExecute("DELETE FROM trip_points WHERE trip_id=?", [id])
         try Database.shared.checkedExecute("DELETE FROM trips WHERE id=? AND car_id=?", [id,CarStore.activeId])
         try Database.shared.checkedExecute("DELETE FROM garage_plus WHERE car_id=? AND key=?", [CarStore.activeId,"phone-drive-\(id)"])
+        if var samples = GaragePlus.load([DrivingSample].self, key: "baseline") {
+            samples.removeAll { $0.id == id }
+            try GaragePlus.save(samples, key: "baseline")
+        }
     }
     private static func insert(_ points: [JourneyPoint], start: Double, end: Double, reports: [PhoneDriveReport], includeEnd: Bool, tag: String?) throws -> Int {
         guard points.count >= 2, end > start else { throw JourneyError.invalid }
@@ -115,6 +124,12 @@ enum JourneyStore {
                 try Database.shared.checkedExecute("INSERT INTO trips(\(keys.joined(separator: ","))) VALUES(\(keys.map { _ in "?" }.joined(separator: ",")))", keys.map { row[$0] is NSNull ? nil : row[$0] })
                 for p in snapshot.points { try Database.shared.checkedExecute("INSERT INTO trip_points(trip_id,t,lat,lon,speed) VALUES(?,?,?,?,?)", [snapshot.id,p.time,p.latitude,p.longitude,p.speed]) }
                 if let report = snapshot.report { try GaragePlus.save(report,key: "phone-drive-\(snapshot.id)") }
+                if let sample = snapshot.baseline {
+                    var samples = GaragePlus.load([DrivingSample].self, key: "baseline") ?? []
+                    samples.removeAll { $0.id == snapshot.id }
+                    samples.append(sample)
+                    try GaragePlus.save(samples, key: "baseline")
+                }
             }
             try GaragePlus.save(archives().filter { $0.id != saved.id }, key: "trip-originals")
         }
