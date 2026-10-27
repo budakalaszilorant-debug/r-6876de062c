@@ -266,10 +266,8 @@ final class CloudSync: ObservableObject {
             let local = try snapshot(), hash = try CloudPayload.hash(local)
             try await refresh(id)
             let head = versions.first
-            if CarStore.all().isEmpty {
-                if let head, canRestore { try await download(head, owner: id, originalHash: hash) }
-                return
-            }
+            // An empty linked garage is still a valid local revision. Restoring it
+            // unconditionally would discard settings and bypass conflict checks.
             switch CloudDecision.decide(linked: true, base: checkpoint.revision, baseHash: checkpoint.fingerprint,
                                         localHash: hash, remoteRevision: head?.revision, remoteHash: head?.fingerprint) {
             case .upload:

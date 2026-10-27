@@ -456,4 +456,30 @@ expect(costCleared.amount == 0 && costCleared.expenseID == nil,"expense deletion
 costCleared.parts = "Updated part note"
 try GarageLibrary.save(costCleared)
 expect(db.query("SELECT COUNT(*) FROM expenses WHERE id=?",[paidExpense]) { $0.int(0) }.first == 0 && GarageLibrary.journal().first { $0.id == paidService.id }?.expenseID == nil,"editing notes cannot resurrect a deleted cost")
+// Missing telemetry must not fabricate stationary driving time or fuel use.
+var idlePacket = VehiclePacket()
+idlePacket.engineRunning = true
+expect(!idlePacket.isIdling, "missing speed is not confirmed idling")
+idlePacket.vehicleSpeed = 0
+expect(idlePacket.isIdling, "running stationary engine is idling")
+idlePacket.vehicleSpeed = 2
+expect(!idlePacket.isIdling, "moving engine is not idling")
+idlePacket.vehicleSpeed = -1
+expect(!idlePacket.isIdling, "invalid speed is not idling")
+idlePacket.vehicleSpeed = .nan
+expect(!idlePacket.isIdling, "nonfinite speed is not idling")
+idlePacket.engineRunning = false; idlePacket.vehicleSpeed = 0
+expect(!idlePacket.isIdling, "stopped engine is not idling")
+
+// An empty snapshot still participates in the normal revision/conflict protocol.
+let emptyPayload = try JSONSerialization.data(withJSONObject: ["version": 2,
+    "tables": Dictionary(uniqueKeysWithValues: Backup.tables.map { ($0, [[String: Any]]()) }),
+    "settings": ["lang": "hu"], "carState": [:]] as [String: Any])
+let emptyHash = try CloudPayload.hash(emptyPayload)
+expect(CloudDecision.decide(linked: true, base: 2, baseHash: firstHash, localHash: emptyHash,
+    remoteRevision: 2, remoteHash: firstHash) == .upload, "empty local revision is preserved and uploaded")
+expect(CloudDecision.decide(linked: true, base: 2, baseHash: firstHash, localHash: emptyHash,
+    remoteRevision: 3, remoteHash: editedHash) == .conflict, "empty garage cannot bypass concurrent edit protection")
+expect(CloudDecision.decide(linked: true, base: 2, baseHash: emptyHash, localHash: emptyHash,
+    remoteRevision: 3, remoteHash: firstHash) == .download, "unchanged empty garage receives remote changes")
 print("Garage integration checks passed: \(checks)")

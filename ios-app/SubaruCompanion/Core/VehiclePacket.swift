@@ -8,6 +8,10 @@ struct VehiclePacket: Equatable {
     var elm: Bool?
     var ecu: Bool = false
     var engineRunning: Bool = false
+    var isIdling: Bool {
+        guard engineRunning, let speed = vehicleSpeed, speed.isFinite else { return false }
+        return speed >= 0 && speed < 2
+    }
     var startId: Int = 0
     var rpm: Double?
     var coolantTemp: Double?

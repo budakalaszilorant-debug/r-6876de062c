@@ -165,7 +165,7 @@ final class TripRecorder {
             guard let self, let trip = self.active else { return }
             self.db.execute("INSERT INTO trip_points(trip_id, t, lat, lon, speed) VALUES(?,?,?,?,?)",
                             [trip.id, loc.timestamp.timeIntervalSince1970,
-                             loc.coordinate.latitude, loc.coordinate.longitude, max(0, loc.speed * 3.6)])
+                             loc.coordinate.latitude, loc.coordinate.longitude, loc.speed >= 0 ? loc.speed * 3.6 : -1])
         }
     }
 
@@ -189,7 +189,7 @@ final class TripRecorder {
         if let rate = p.fuelRateLph {
             trip.fuelL = (trip.fuelL ?? 0) + rate * dt / 3600
         }
-        if p.engineRunning, (p.vehicleSpeed ?? 0) < 2 {
+        if p.isIdling {
             trip.idleS += dt
             if let rate = p.fuelRateLph { trip.idleFuelL += rate * dt / 3600 }
         }
