@@ -482,4 +482,34 @@ expect(CloudDecision.decide(linked: true, base: 2, baseHash: firstHash, localHas
     remoteRevision: 3, remoteHash: editedHash) == .conflict, "empty garage cannot bypass concurrent edit protection")
 expect(CloudDecision.decide(linked: true, base: 2, baseHash: emptyHash, localHash: emptyHash,
     remoteRevision: 3, remoteHash: firstHash) == .download, "unchanged empty garage receives remote changes")
+// A malformed imported route must fail before replacing any current data.
+let beforeInvalidGPS = Backup.makeData()!
+let beforeInvalidGPSHash = try CloudPayload.hash(beforeInvalidGPS)
+for (column, value) in [("lat", 91.0), ("lon", -181.0)] {
+    var root = try JSONSerialization.jsonObject(with: beforeInvalidGPS) as! [String: Any]
+    var rows = root["tables"] as! [String: [[String: Any]]]
+    expect(!(rows["trip_points"] ?? []).isEmpty, "GPS restore regression has real route points")
+    rows["trip_points"]![0][column] = value
+    root["tables"] = rows
+    do {
+        _ = try Backup.restore(data: JSONSerialization.data(withJSONObject: root))
+        fatalError("out-of-range coordinate accepted")
+    } catch Backup.RestoreError.wrongFormat {} catch { fatalError("unexpected GPS restore error") }
+    let afterHash = try CloudPayload.hash(Backup.makeData()!)
+    expect(afterHash == beforeInvalidGPSHash, "invalid coordinate import preserves the full garage")
+}
+
+// Backup scheduling belongs to the account, not to whichever user saved last.
+let ownerBeforeBackupTest = AccountGarage.current!
+try AccountGarage.activate(owner: "backup-owner-a", verifiedEmail: nil)
+expect(Backup.lastBackup == nil, "new account has no inherited backup date")
+let accountBackup = Backup.writeFile()!
+defer { try? FileManager.default.removeItem(at: accountBackup) }
+let savedBackupDate = Backup.lastBackup
+expect(savedBackupDate != nil, "successful file backup updates this account")
+try AccountGarage.activate(owner: "backup-owner-b", verifiedEmail: nil)
+expect(Backup.lastBackup == nil, "other account is still due for its first backup")
+try AccountGarage.activate(owner: "backup-owner-a", verifiedEmail: nil)
+expect(Backup.lastBackup == savedBackupDate, "returning account retains its own backup date")
+try AccountGarage.activate(owner: ownerBeforeBackupTest, verifiedEmail: AccountGarage.personalEmail)
 print("Garage integration checks passed: \(checks)")

@@ -17,8 +17,10 @@ enum Backup {
         return dir
     }
 
+    private static var lastBackupKey: String { "lastBackupAt-" + AccountGarage.exportNamespace }
+
     static var lastBackup: Date? {
-        let t = UserDefaults.standard.double(forKey: "lastBackupAt")
+        let t = UserDefaults.standard.double(forKey: lastBackupKey)
         return t > 0 ? Date(timeIntervalSince1970: t) : nil
     }
 
@@ -68,7 +70,7 @@ enum Backup {
         } catch {
             return nil
         }
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastBackupAt")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastBackupKey)
         prune(keep: 5)
         return url
     }
@@ -173,7 +175,14 @@ enum Backup {
         }
         let trips = Set((data["trips"] ?? []).compactMap { $0["id"] as? Int })
         for row in data["trip_points"] ?? [] {
-            guard let id = row["trip_id"] as? Int, trips.contains(id) else { throw RestoreError.wrongFormat }
+            guard let id = row["trip_id"] as? Int, trips.contains(id),
+                  let time = row["t"] as? Double, time.isFinite,
+                  let latitude = row["lat"] as? Double, latitude.isFinite, (-90...90).contains(latitude),
+                  let longitude = row["lon"] as? Double, longitude.isFinite, (-180...180).contains(longitude)
+            else { throw RestoreError.wrongFormat }
+            if let value = row["speed"], !(value is NSNull) {
+                guard let speed = value as? Double, speed.isFinite else { throw RestoreError.wrongFormat }
+            }
         }
         for row in data["service_plan"] ?? [] {
             guard let km = row["interval_km"] as? Double, km.isFinite, (0...500_000).contains(km) else { throw RestoreError.wrongFormat }
